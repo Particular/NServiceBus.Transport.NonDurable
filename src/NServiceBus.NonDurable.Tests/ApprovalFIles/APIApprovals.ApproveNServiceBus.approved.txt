@@ -1,0 +1,73 @@
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(@"NServiceBus.NonDurable.AcceptanceTests, PublicKey=00240000048000009400000006020000002400005253413100040000010001007f16e21368ff041183fab592d9e8ed37e7be355e93323147a1d29983d6e591b04282e4da0c9e18bd901e112c0033925eb7d7872c2f1706655891c5c9d57297994f707d16ee9a8f40d978f064ee1ffc73c0db3f4712691b23bf596f75130f4ec978cf78757ec034625a5f27e6bb50c618931ea49f6f628fd74271c32959efb1c5")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(@"NServiceBus.NonDurable.Tests, PublicKey=00240000048000009400000006020000002400005253413100040000010001007f16e21368ff041183fab592d9e8ed37e7be355e93323147a1d29983d6e591b04282e4da0c9e18bd901e112c0033925eb7d7872c2f1706655891c5c9d57297994f707d16ee9a8f40d978f064ee1ffc73c0db3f4712691b23bf596f75130f4ec978cf78757ec034625a5f27e6bb50c618931ea49f6f628fd74271c32959efb1c5")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(@"NServiceBus.NonDurable.TransportTests, PublicKey=00240000048000009400000006020000002400005253413100040000010001007f16e21368ff041183fab592d9e8ed37e7be355e93323147a1d29983d6e591b04282e4da0c9e18bd901e112c0033925eb7d7872c2f1706655891c5c9d57297994f707d16ee9a8f40d978f064ee1ffc73c0db3f4712691b23bf596f75130f4ec978cf78757ec034625a5f27e6bb50c618931ea49f6f628fd74271c32959efb1c5")]
+namespace NServiceBus
+{
+    public sealed class InlineExecutionOptions
+    {
+        public InlineExecutionOptions() { }
+        public bool MoveToErrorQueueOnFailure { get; set; }
+    }
+    public sealed class NonDurableBroker : System.IAsyncDisposable
+    {
+        public NonDurableBroker(NServiceBus.NonDurableBrokerOptions? options = null) { }
+        public System.Threading.Tasks.ValueTask DisposeAsync() { }
+        public void Unsubscribe(string publisherAddress, string topic) { }
+    }
+    public sealed class NonDurableBrokerOptions
+    {
+        public NonDurableBrokerOptions() { }
+        public NServiceBus.NonDurableSimulationOptions Default { get; }
+        public NServiceBus.NonDurableSimulationOptions DelayedDelivery { get; }
+        public NServiceBus.NonDurableSimulationOptions Receive { get; }
+        public NServiceBus.NonDurableSimulationOptions Send { get; }
+        public System.TimeProvider? TimeProvider { get; init; }
+        public NServiceBus.NonDurableQueueSimulationOptions ForQueue(string queue) { }
+    }
+    public sealed class NonDurableQueueSimulationOptions
+    {
+        public NonDurableQueueSimulationOptions() { }
+        public NServiceBus.NonDurableSimulationOptions Default { get; }
+        public NServiceBus.NonDurableSimulationOptions DelayedDelivery { get; }
+        public NServiceBus.NonDurableSimulationOptions Receive { get; }
+        public NServiceBus.NonDurableSimulationOptions Send { get; }
+        public System.TimeProvider? TimeProvider { get; set; }
+    }
+    public sealed class NonDurableRateLimitOptions
+    {
+        public NonDurableRateLimitOptions() { }
+        public required int PermitLimit { get; init; }
+        public required System.TimeSpan Window { get; init; }
+    }
+    public sealed class NonDurableSimulationException : System.Exception
+    {
+        public NonDurableSimulationException(string message, System.TimeSpan retryAfter, System.TimeProvider timeProvider) { }
+        public System.TimeSpan RetryAfter { get; }
+    }
+    public enum NonDurableSimulationMode
+    {
+        Delay = 0,
+        Reject = 1,
+    }
+    public sealed class NonDurableSimulationOptions
+    {
+        public NonDurableSimulationOptions() { }
+        public NServiceBus.NonDurableSimulationMode? Mode { get; set; }
+        public NServiceBus.NonDurableRateLimitOptions? RateLimit { get; set; }
+        public System.Threading.RateLimiting.RateLimiter? RateLimiter { get; set; }
+        public System.Func<System.TimeProvider, System.Threading.RateLimiting.RateLimiter>? RateLimiterFactory { get; set; }
+        public System.TimeProvider? TimeProvider { get; set; }
+    }
+    public class NonDurableTransport : NServiceBus.Transport.TransportDefinition
+    {
+        public NonDurableTransport(NServiceBus.NonDurableTransportOptions? options = null) { }
+        public override System.Collections.Generic.IReadOnlyCollection<NServiceBus.TransportTransactionMode> GetSupportedTransactionModes() { }
+        public override System.Threading.Tasks.Task<NServiceBus.Transport.TransportInfrastructure> Initialize(NServiceBus.Transport.HostSettings hostSettings, NServiceBus.Transport.ReceiveSettings[] receivers, string[] sendingAddresses, System.Threading.CancellationToken cancellationToken = default) { }
+    }
+    public sealed class NonDurableTransportOptions
+    {
+        public NonDurableTransportOptions(NServiceBus.NonDurableBroker? broker = null) { }
+        public NServiceBus.NonDurableBroker? Broker { get; }
+        public NServiceBus.InlineExecutionOptions? InlineExecution { get; set; }
+    }
+}

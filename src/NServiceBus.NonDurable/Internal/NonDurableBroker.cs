@@ -1,0 +1,499 @@
+namespace NServiceBus;
+
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Threading.RateLimiting;
+
+public sealed class NonDurableBroker : IAsyncDisposable
+{
+    public NonDurableBroker(NonDurableBrokerOptions? options = null)
+    {
+        this.options = options ?? new NonDurableBrokerOptions();
+        ValidateOptions(this.options);
+        timeProvider = this.options.TimeProvider ?? TimeProvider.System;
+    }
+
+    internal NonDurableChannel GetOrCreateQueue(string address) => queues.GetOrAdd(address, _ => new NonDurableChannel());
+
+    internal bool TryGetQueue(string address, out NonDurableChannel? queue) => queues.TryGetValue(address, out queue);
+
+    internal void Subscribe(string publisherAddress, string topic) =>
+        subscriptions.AddOrUpdate(
+            topic,
+            static (_, address) => new Lazy<string[]>([address]),
+            static (_, currentLazy, address) =>
+            {
+                if (currentLazy.Value.AsSpan().IndexOf(address) >= 0)
+                {
+                    return currentLazy;
+                }
+
+                return new Lazy<string[]>(() =>
+                {
+                    var current = currentLazy.Value;
+                    var currentSpan = current.AsSpan();
+                    if (currentSpan.IndexOf(address) >= 0)
+                    {
+                        return current;
+                    }
+
+                    var next = new string[current.Length + 1];
+                    currentSpan.CopyTo(next);
+                    next[^1] = address;
+                    return next;
+                });
+            },
+            publisherAddress);
+
+    public void Unsubscribe(string publisherAddress, string topic) =>
+        subscriptions.AddOrUpdate(
+            topic,
+            static (_, _) => new Lazy<string[]>([]),
+            static (_, currentLazy, address) =>
+            {
+                if (currentLazy.Value.AsSpan().IndexOf(address) < 0)
+                {
+                    return currentLazy;
+                }
+
+                return new Lazy<string[]>(() =>
+                {
+                    var current = currentLazy.Value;
+                    var currentSpan = current.AsSpan();
+                    var index = currentSpan.IndexOf(address);
+                    if (index < 0)
+                    {
+                        return current;
+                    }
+
+                    if (current.Length == 1)
+                    {
+                        return [];
+                    }
+
+                    var next = new string[current.Length - 1];
+                    var nextSpan = next.AsSpan();
+                    currentSpan[..index].CopyTo(nextSpan[..index]);
+                    currentSpan[(index + 1)..].CopyTo(nextSpan[index..]);
+                    return next;
+                });
+            },
+            publisherAddress);
+
+    internal IReadOnlyList<string> GetSubscribers(string topic) => subscriptions.TryGetValue(topic, out var lazy) ? lazy.Value : [];
+
+    internal long GetNextSequenceNumber() => Interlocked.Increment(ref sequenceNumber);
+
+    internal void EnqueueDelayed(BrokerEnvelope envelope, DateTimeOffset deliverAt)
+    {
+        lock (delayedMessagesLock)
+        {
+            delayedMessages.Enqueue(envelope.WithDeliverAt(deliverAt), (deliverAt, envelope.SequenceNumber));
+            SignalDelayedMessagesChanged();
+        }
+    }
+
+    internal bool TryDequeueDelayed(DateTimeOffset now, [NotNullWhen(true)] out BrokerEnvelope? envelope)
+    {
+        lock (delayedMessagesLock)
+        {
+            return TryDequeueDelayedCore(now, out envelope);
+        }
+    }
+
+    internal Task SimulateSendAsync(string destination, CancellationToken cancellationToken = default) => !HasSimulationFor(NonDurableSimulationOperation.Send, destination) ? Task.CompletedTask : ApplySimulationAsync(NonDurableSimulationOperation.Send, destination, cancellationToken);
+
+    internal Task SimulateReceiveAsync(string destination, CancellationToken cancellationToken = default) => !HasSimulationFor(NonDurableSimulationOperation.Receive, destination) ? Task.CompletedTask : ApplySimulationAsync(NonDurableSimulationOperation.Receive, destination, cancellationToken);
+
+    internal Task StartPump(CancellationToken cancellationToken = default)
+    {
+        if (Interlocked.CompareExchange(ref pumpStarted, 1, 0) != 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        delayedPumpCancelSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        delayedPumpTask = StartDelayedMessagePump(delayedPumpCancelSource.Token);
+        return Task.CompletedTask;
+    }
+
+    bool HasSimulationFor(NonDurableSimulationOperation operation, string queue)
+    {
+        var resolved = ResolveSimulation(operation, queue);
+        return resolved.RateLimit is not null || resolved.RateLimiter is not null || resolved.RateLimiterFactory is not null;
+    }
+
+    async Task StartDelayedMessagePump(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            BrokerEnvelope? envelopeToDispatch;
+            Task scheduleChangedTask;
+            TimeSpan? waitDuration;
+
+            lock (delayedMessagesLock)
+            {
+                if (TryDequeueDelayedCore(GetUtcNow(), out envelopeToDispatch))
+                {
+                    scheduleChangedTask = Task.CompletedTask;
+                    waitDuration = null;
+                }
+                else
+                {
+                    envelopeToDispatch = null;
+                    scheduleChangedTask = delayedMessagesChanged.Task;
+                    waitDuration = GetNextWaitDuration(GetUtcNow());
+                }
+            }
+
+            if (envelopeToDispatch != null)
+            {
+                try
+                {
+                    await ApplySimulationAsync(NonDurableSimulationOperation.DelayedDelivery, envelopeToDispatch.Destination, cancellationToken).ConfigureAwait(false);
+                }
+                catch (NonDurableSimulationException ex)
+                {
+                    EnqueueDelayed(envelopeToDispatch, ex.TimeProvider.GetUtcNow() + ex.RetryAfter);
+                    continue;
+                }
+
+                var queue = GetOrCreateQueue(envelopeToDispatch.Destination);
+                await queue.Enqueue(envelopeToDispatch, CancellationToken.None).ConfigureAwait(false);
+                continue;
+            }
+
+            try
+            {
+                await WaitForDelayedMessagesAsync(scheduleChangedTask, waitDuration, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+        }
+    }
+
+    async Task WaitForDelayedMessagesAsync(Task scheduleChangedTask, TimeSpan? waitDuration, CancellationToken cancellationToken)
+    {
+        if (waitDuration is null)
+        {
+            await scheduleChangedTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (waitDuration <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var delayTask = Task.Delay(waitDuration.Value, timeProvider, cancellationToken);
+        var completedTask = await Task.WhenAny(scheduleChangedTask, delayTask).ConfigureAwait(false);
+        await completedTask.ConfigureAwait(false);
+    }
+
+    DateTimeOffset GetUtcNow() => timeProvider.GetUtcNow();
+
+    internal DateTimeOffset GetCurrentTime() => GetUtcNow();
+
+    async Task ApplySimulationAsync(NonDurableSimulationOperation operation, string queue, CancellationToken cancellationToken)
+    {
+        var resolved = ResolveSimulation(operation, queue);
+        if (resolved.RateLimit is null && resolved.RateLimiter is null && resolved.RateLimiterFactory is null)
+        {
+            return;
+        }
+
+        if (resolved.RateLimiter != null || resolved.RateLimiterFactory != null)
+        {
+            await ApplyCustomRateLimiterAsync(operation, queue, resolved, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        while (true)
+        {
+            var now = resolved.TimeProvider.GetUtcNow();
+            var acquired = TryAcquirePermit(operation, queue, resolved.RateLimit!, now, out var retryAfter);
+            if (acquired)
+            {
+                return;
+            }
+
+            if (resolved.Mode == NonDurableSimulationMode.Reject)
+            {
+                throw new NonDurableSimulationException($"In-memory {operation} simulation rejected access to queue '{queue}'.", retryAfter, resolved.TimeProvider);
+            }
+
+            await Task.Delay(retryAfter, resolved.TimeProvider, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    async Task ApplyCustomRateLimiterAsync(NonDurableSimulationOperation operation, string queue, ResolvedSimulationSettings resolved, CancellationToken cancellationToken)
+    {
+        var factory = resolved.RateLimiterFactory;
+        var limiter = resolved.RateLimiter ?? customLimiters.GetOrAdd(
+            (operation, queue),
+            static (_, state) => state.RateLimiterFactory(state.TimeProvider),
+            (RateLimiterFactory: factory!, resolved.TimeProvider));
+
+        if (resolved.Mode == NonDurableSimulationMode.Reject)
+        {
+            using var lease = limiter.AttemptAcquire();
+            if (lease.IsAcquired)
+            {
+                return;
+            }
+
+            throw new NonDurableSimulationException($"In-memory {operation} simulation rejected access to queue '{queue}'.", GetRetryAfter(lease), resolved.TimeProvider);
+        }
+
+        using var acquiredLease = await limiter.AcquireAsync(1, cancellationToken).ConfigureAwait(false);
+        if (!acquiredLease.IsAcquired)
+        {
+            throw new NonDurableSimulationException($"In-memory {operation} simulation rejected access to queue '{queue}'.", GetRetryAfter(acquiredLease), resolved.TimeProvider);
+        }
+    }
+
+    ResolvedSimulationSettings ResolveSimulation(NonDurableSimulationOperation operation, string queue)
+    {
+        options.TryGetQueue(queue, out var queueOptions);
+
+        var brokerLevel = operation switch
+        {
+            NonDurableSimulationOperation.Send => options.Send,
+            NonDurableSimulationOperation.Receive => options.Receive,
+            NonDurableSimulationOperation.DelayedDelivery => options.DelayedDelivery,
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null)
+        };
+
+        var queueLevel = queueOptions is null
+            ? null
+            : operation switch
+            {
+                NonDurableSimulationOperation.Send => queueOptions.Send,
+                NonDurableSimulationOperation.Receive => queueOptions.Receive,
+                NonDurableSimulationOperation.DelayedDelivery => queueOptions.DelayedDelivery,
+                _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null)
+            };
+
+        var effectiveTimeProvider = queueLevel?.TimeProvider
+            ?? queueOptions?.TimeProvider
+            ?? brokerLevel.TimeProvider
+            ?? options.TimeProvider
+            ?? TimeProvider.System;
+
+        var effectiveRateLimit = queueLevel?.RateLimit
+            ?? queueOptions?.Default.RateLimit
+            ?? brokerLevel.RateLimit
+            ?? options.Default.RateLimit;
+
+        var effectiveRateLimiter = queueLevel?.RateLimiter
+            ?? queueOptions?.Default.RateLimiter
+            ?? brokerLevel.RateLimiter
+            ?? options.Default.RateLimiter;
+
+        var effectiveRateLimiterFactory = queueLevel?.RateLimiterFactory
+            ?? queueOptions?.Default.RateLimiterFactory
+            ?? brokerLevel.RateLimiterFactory
+            ?? options.Default.RateLimiterFactory;
+
+        var effectiveMode = queueLevel?.Mode
+            ?? queueOptions?.Default.Mode
+            ?? brokerLevel.Mode
+            ?? options.Default.Mode
+            ?? (effectiveRateLimit is null && effectiveRateLimiter is null && effectiveRateLimiterFactory is null ? null : NonDurableSimulationMode.Delay);
+
+        return new ResolvedSimulationSettings(effectiveTimeProvider, effectiveMode, effectiveRateLimit, effectiveRateLimiter, effectiveRateLimiterFactory);
+    }
+
+    static TimeSpan GetRetryAfter(RateLimitLease lease)
+    {
+        if (lease.TryGetMetadata(MetadataName.RetryAfter.Name, out var metadata) && metadata is TimeSpan retryAfter)
+        {
+            return retryAfter;
+        }
+
+        return TimeSpan.Zero;
+    }
+
+    static void ValidateOptions(NonDurableBrokerOptions options)
+    {
+        ValidateNode(options.Default, "Default");
+        ValidateNode(options.Send, "Send");
+        ValidateNode(options.Receive, "Receive");
+        ValidateNode(options.DelayedDelivery, "DelayedDelivery");
+
+        foreach (var queueOptions in options.GetQueues())
+        {
+            ValidateNode(queueOptions.Default, "Queue.Default");
+            ValidateNode(queueOptions.Send, "Queue.Send");
+            ValidateNode(queueOptions.Receive, "Queue.Receive");
+            ValidateNode(queueOptions.DelayedDelivery, "Queue.DelayedDelivery");
+        }
+    }
+
+    static void ValidateNode(NonDurableSimulationOptions options, string nodeName)
+    {
+        var configuredLimiterSources = 0;
+        if (options.RateLimit != null)
+        {
+            configuredLimiterSources++;
+        }
+
+        if (options.RateLimiter != null)
+        {
+            configuredLimiterSources++;
+        }
+
+        if (options.RateLimiterFactory != null)
+        {
+            configuredLimiterSources++;
+        }
+
+        if (configuredLimiterSources > 1)
+        {
+            throw new ArgumentException($"Simulation node '{nodeName}' configures multiple limiter sources. Only one of RateLimit, RateLimiter, or RateLimiterFactory may be set.");
+        }
+    }
+
+    bool TryAcquirePermit(NonDurableSimulationOperation operation, string queue, NonDurableRateLimitOptions rateLimit, DateTimeOffset now, out TimeSpan retryAfter)
+    {
+        var state = simulationState.GetOrAdd((operation, queue), static (_, now) => new WindowState(now), now);
+
+        lock (state)
+        {
+            if (rateLimit.PermitLimit <= 0)
+            {
+                retryAfter = rateLimit.Window;
+                return false;
+            }
+
+            if (rateLimit.Window <= TimeSpan.Zero)
+            {
+                retryAfter = TimeSpan.Zero;
+                return true;
+            }
+
+            if (now - state.WindowStart >= rateLimit.Window)
+            {
+                state.WindowStart = now;
+                state.PermitsUsed = 0;
+            }
+
+            if (state.PermitsUsed < rateLimit.PermitLimit)
+            {
+                state.PermitsUsed++;
+                retryAfter = TimeSpan.Zero;
+                return true;
+            }
+
+            var nextPermitAt = state.WindowStart + rateLimit.Window;
+            retryAfter = nextPermitAt - now;
+            return false;
+        }
+    }
+
+    TimeSpan? GetNextWaitDuration(DateTimeOffset now)
+    {
+        if (delayedMessages.Count == 0)
+        {
+            return null;
+        }
+
+        var nextMessage = delayedMessages.Peek();
+        var deliverAt = nextMessage.DeliverAt ?? now;
+        return deliverAt - now;
+    }
+
+    bool TryDequeueDelayedCore(DateTimeOffset now, [NotNullWhen(true)] out BrokerEnvelope? envelope)
+    {
+        if (delayedMessages.Count == 0)
+        {
+            envelope = null;
+            return false;
+        }
+
+        var peeked = delayedMessages.Peek();
+        if (peeked.DeliverAt <= now)
+        {
+            _ = delayedMessages.Dequeue();
+            envelope = peeked;
+            return true;
+        }
+
+        envelope = null;
+        return false;
+    }
+
+    void SignalDelayedMessagesChanged()
+    {
+        if (!delayedMessagesChanged.Task.IsCompleted)
+        {
+            _ = delayedMessagesChanged.TrySetResult();
+            delayedMessagesChanged = CreateDelayedMessagesChangedSignal();
+        }
+    }
+
+    static TaskCompletionSource CreateDelayedMessagesChangedSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Disposes the broker, completing all queues and stopping the delayed message pump. Any buffered messages will be lost.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        await delayedPumpCancelSource.CancelAsync().ConfigureAwait(false);
+        SignalDelayedMessagesChanged();
+        if (delayedPumpTask != null)
+        {
+            await delayedPumpTask.ConfigureAwait(false);
+        }
+
+        // Completing queues lets receivers drain any buffered envelopes and then exit cleanly.
+        foreach (var queue in queues.Values)
+        {
+            queue.TryComplete();
+        }
+
+        foreach (var limiter in customLimiters.Values)
+        {
+            await limiter.DisposeAsync().ConfigureAwait(false);
+        }
+
+        customLimiters.Clear();
+        delayedPumpCancelSource.Dispose();
+    }
+
+    readonly ConcurrentDictionary<string, NonDurableChannel> queues = new();
+    readonly ConcurrentDictionary<string, Lazy<string[]>> subscriptions = new();
+    readonly PriorityQueue<BrokerEnvelope, (DateTimeOffset DeliverAt, long SequenceNumber)> delayedMessages = new();
+    readonly Lock delayedMessagesLock = new();
+    long sequenceNumber;
+    int pumpStarted;
+    CancellationTokenSource delayedPumpCancelSource = new();
+    Task? delayedPumpTask;
+    TaskCompletionSource delayedMessagesChanged = CreateDelayedMessagesChangedSignal();
+    readonly TimeProvider timeProvider;
+    readonly NonDurableBrokerOptions options;
+    readonly ConcurrentDictionary<(NonDurableSimulationOperation Operation, string Queue), WindowState> simulationState = new();
+    readonly ConcurrentDictionary<(NonDurableSimulationOperation Operation, string Queue), RateLimiter> customLimiters = new();
+
+    sealed class WindowState(DateTimeOffset windowStart)
+    {
+        public DateTimeOffset WindowStart { get; set; } = windowStart;
+
+        public int PermitsUsed { get; set; }
+    }
+
+    readonly record struct ResolvedSimulationSettings(TimeProvider TimeProvider, NonDurableSimulationMode? Mode, NonDurableRateLimitOptions? RateLimit, RateLimiter? RateLimiter, Func<TimeProvider, RateLimiter>? RateLimiterFactory);
+
+    enum NonDurableSimulationOperation
+    {
+        Send,
+        Receive,
+        DelayedDelivery
+    }
+}
