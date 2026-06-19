@@ -31,7 +31,7 @@ public class When_committing_enlisted_sends_through_dispatcher
             (messageContext, _) =>
             {
                 var pendingEnvelope = CreateEnvelope(pool, [1, 2, 3]);
-                messageContext.TransportTransaction.Get<INonDurableReceiveTransaction>().Enlist(pendingEnvelope);
+                messageContext.TransportTransaction.Get<PendingEnvelopeEnlistment>().Add(pendingEnvelope);
                 return Task.CompletedTask;
             },
             (_, _) => Task.FromResult(ErrorHandleResult.Handled));

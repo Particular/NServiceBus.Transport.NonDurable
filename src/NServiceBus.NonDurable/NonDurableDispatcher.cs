@@ -415,9 +415,8 @@ class NonDurableDispatcher(
         {
             return false;
         }
-        if (transaction.TryGet<INonDurableReceiveTransaction>(out var receiveTransaction) && receiveTransaction != null)
+        if (transaction.TryGet<PendingEnvelopeEnlistment>(out var enlistment) && enlistment != null && enlistment.Add(envelope))
         {
-            receiveTransaction.Enlist(envelope);
             return true;
         }
         return false;

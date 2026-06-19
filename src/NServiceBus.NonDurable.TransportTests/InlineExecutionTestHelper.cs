@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Transactions;
 using DelayedDelivery;
 using Extensibility;
 using Microsoft.Extensions.Time.Testing;
@@ -63,18 +64,28 @@ static class InlineExecutionTestHelper
 
     public static InlineExecutionScope CreateScope() => new(Guid.NewGuid());
 
-    public static NonDurableReceiveTransaction CreateReceiveTransaction() => new();
+    public static (CommittableTransaction Committable, PendingEnvelopeEnlistment Enlistment) CreateReceiveTransaction()
+    {
+        var committable = new CommittableTransaction();
+        var enlistment = new PendingEnvelopeEnlistment();
+        committable.EnlistVolatile(enlistment, EnlistmentOptions.None);
+        return (committable, enlistment);
+    }
 
     public static ReceivePipelineTransportTransactionMarker CreateReceivePipelineMarker() => ReceivePipelineTransportTransactionMarker.Instance;
 
-    public static void AttachReceiveTransaction(TransportTransaction transaction, NonDurableReceiveTransaction receiveTransaction) =>
-        transaction.Set<INonDurableReceiveTransaction>(receiveTransaction);
+    public static void AttachReceiveTransaction(TransportTransaction transaction, (CommittableTransaction Committable, PendingEnvelopeEnlistment Enlistment) receiveTransaction)
+    {
+        // Key under the Transaction base type, matching InlineExecutionRunner.
+        transaction.Set<Transaction>(receiveTransaction.Committable);
+        transaction.Set(receiveTransaction.Enlistment);
+    }
 
     public static void AttachInlineScope(TransportTransaction transaction, InlineExecutionScope scope) =>
         transaction.Set(scope);
 
-    public static IReadOnlyList<BrokerEnvelope> GetPendingEnvelopes(NonDurableReceiveTransaction receiveTransaction) =>
-        receiveTransaction.GetPendingEnvelopesForTesting();
+    public static IReadOnlyList<BrokerEnvelope> GetPendingEnvelopes(PendingEnvelopeEnlistment enlistment) =>
+        enlistment.GetPendingEnvelopesForTesting();
 
     public static InlineEnvelopeState? GetInlineState(BrokerEnvelope envelope) => envelope.InlineState;
 

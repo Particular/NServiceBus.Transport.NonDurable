@@ -17,11 +17,11 @@ public class When_dispatching_user_requested_delayed_local_dispatch_from_receive
         await using var broker = new NonDurableBroker();
         var dispatcher = await CreateDispatcher(broker, ["input"]);
         var transaction = new TransportTransaction();
-        var receiveTransaction = CreateReceiveTransaction();
+        var (committable, receiveTransaction) = CreateReceiveTransaction();
         var scope = CreateScope();
 
         transaction.Set(CreateReceivePipelineMarker());
-        AttachReceiveTransaction(transaction, receiveTransaction);
+        AttachReceiveTransaction(transaction, (committable, receiveTransaction));
         AttachInlineScope(transaction, scope);
 
         var task = dispatcher.Dispatch(new TransportOperations(CreateUnicast("input", DispatchConsistency.Default, TimeSpan.FromMinutes(1))), transaction);
@@ -37,5 +37,7 @@ public class When_dispatching_user_requested_delayed_local_dispatch_from_receive
             Assert.That(pending, Has.Count.EqualTo(1));
             Assert.That(GetInlineState(pending.Single()), Is.Null);
         });
+
+        committable.Dispose();
     }
 }

@@ -14,15 +14,19 @@ public class When_rolling_back_enlisted_sends
     public void Should_return_pending_envelope_buffers_to_pool()
     {
         var pool = new TrackingArrayPool();
-        var transaction = CreateReceiveTransaction();
+        var (committable, enlistment) = CreateReceiveTransaction();
 
-        transaction.Enlist(CreateEnvelope(pool, [1]));
-        transaction.Enlist(CreateEnvelope(pool, [2]));
+        enlistment.Add(CreateEnvelope(pool, [1]));
+        enlistment.Add(CreateEnvelope(pool, [2]));
 
-        transaction.Rollback();
+        // Rolling back the CommittableTransaction fires the enlistment's
+        // Rollback callback, which disposes pending envelopes (returns pooled
+        // buffers) and clears the list — the decision 2-B contract.
+        committable.Rollback();
 
         Assert.That(pool.ReturnedBuffers, Is.EqualTo(2));
-        Assert.That(GetPendingEnvelopes(transaction), Is.Empty);
+        Assert.That(GetPendingEnvelopes(enlistment), Is.Empty);
+        committable.Dispose();
     }
 
     static BrokerEnvelope CreateEnvelope(TrackingArrayPool pool, byte[] body)
