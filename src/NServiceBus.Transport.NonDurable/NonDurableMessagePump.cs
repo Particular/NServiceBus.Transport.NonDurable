@@ -67,7 +67,9 @@ class NonDurableMessagePump(
             {
                 if (stopRequested.Task.IsCompleted)
                 {
+#pragma warning disable CA2000 // ownership is transferred to the caller
                     if (!queue.TryDequeue(out envelope))
+#pragma warning restore CA2000
                     {
                         break;
                     }
@@ -139,7 +141,7 @@ class NonDurableMessagePump(
                 if (isProcessing && envelope != null)
                 {
                     var inlineState = envelope.InlineState;
-                    if (inlineState != null && !inlineState.Scope.Completion.IsCompleted)
+                    if (inlineState is { Scope.Completion.IsCompleted: false })
                     {
                         RequeuePendingInlineScope(inlineState.Scope);
                     }
@@ -296,7 +298,9 @@ class NonDurableMessagePump(
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+#pragma warning disable CA1031
         catch when (scope.Completion.IsCompleted)
+#pragma warning restore CA1031
         {
         }
     }
@@ -305,7 +309,9 @@ class NonDurableMessagePump(
     {
         while (await queue.WaitToRead(cancellationToken).ConfigureAwait(false))
         {
+#pragma warning disable CA2000 // ownership is transferred to the caller
             if (queue.TryDequeue(out var envelope))
+#pragma warning restore CA2000
             {
                 return envelope;
             }

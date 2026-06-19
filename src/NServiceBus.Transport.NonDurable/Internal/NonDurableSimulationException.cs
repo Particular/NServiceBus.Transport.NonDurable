@@ -2,9 +2,34 @@ namespace NServiceBus;
 
 using System;
 
-public sealed class NonDurableSimulationException(string message, TimeSpan retryAfter, TimeProvider timeProvider) : Exception(message)
+[Serializable]
+public sealed class NonDurableSimulationException : Exception
 {
-    public TimeSpan RetryAfter { get; } = retryAfter;
+    public NonDurableSimulationException() : this("Simulated exception", TimeSpan.FromSeconds(1), TimeProvider.System)
+    {
+    }
 
-    internal TimeProvider TimeProvider { get; } = timeProvider;
+    public NonDurableSimulationException(string message) : this(message, TimeSpan.FromSeconds(1), TimeProvider.System)
+    {
+    }
+
+    public NonDurableSimulationException(string message, Exception innerException) : this(message, TimeSpan.FromSeconds(1), TimeProvider.System)
+    {
+    }
+
+    public NonDurableSimulationException(string message, TimeSpan retryAfter, TimeProvider timeProvider) : base(message)
+    {
+        RetryAfter = retryAfter;
+        TimeProvider = timeProvider;
+    }
+
+    public NonDurableSimulationException(string message, TimeSpan retryAfter, TimeProvider timeProvider, Exception innerException) : base(message, innerException)
+    {
+        RetryAfter = retryAfter;
+        TimeProvider = timeProvider;
+    }
+
+    public TimeSpan RetryAfter { get; }
+
+    internal TimeProvider TimeProvider { get; }
 }

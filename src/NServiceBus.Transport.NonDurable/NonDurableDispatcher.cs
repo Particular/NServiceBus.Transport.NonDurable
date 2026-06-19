@@ -116,6 +116,7 @@ class NonDurableDispatcher(
             var now = broker.GetCurrentTime();
             var deliverAt = GetDeliverAt(transportOperation.Properties, now);
             var discardAfter = GetDiscardAfter(transportOperation.Properties, now);
+#pragma warning disable CA2000 // ownership is transferred to the caller
             var envelope = BrokerPayloadStore.Borrow(
                 messageId,
                 message.Body.Span,
@@ -125,6 +126,7 @@ class NonDurableDispatcher(
                 sequenceNumber,
                 deliverAt,
                 discardAfter);
+#pragma warning restore CA2000
 
             if (TryEnlistToReceiveTransaction(transaction, envelope, transportOperation.RequiredDispatchConsistency))
             {
@@ -143,6 +145,7 @@ class NonDurableDispatcher(
         var now = broker.GetCurrentTime();
         var deliverAt = GetDeliverAt(operation.Properties, now);
         var discardAfter = GetDiscardAfter(operation.Properties, now);
+#pragma warning disable CA2000 // ownership is transferred to the caller
         var envelope = BrokerPayloadStore.Borrow(
             messageId,
             message.Body.Span,
@@ -152,6 +155,7 @@ class NonDurableDispatcher(
             sequenceNumber,
             deliverAt,
             discardAfter);
+#pragma warning restore CA2000
 
         if (ShouldPreserveInlineScopeForDelayedRecoverability(transaction, deliverAt, out var preservedScope, out var preservedDispatchContext))
         {
@@ -176,12 +180,7 @@ class NonDurableDispatcher(
             return DispatchInlineLocalUnicast(operation, envelope, transaction, deliverAt, cancellationToken);
         }
 
-        if (TryEnlistToReceiveTransaction(transaction, envelope, operation.RequiredDispatchConsistency))
-        {
-            return Task.CompletedTask;
-        }
-
-        return DispatchRegularUnicast(operation, envelope, deliverAt, cancellationToken);
+        return TryEnlistToReceiveTransaction(transaction, envelope, operation.RequiredDispatchConsistency) ? Task.CompletedTask : DispatchRegularUnicast(operation, envelope, deliverAt, cancellationToken);
     }
 
     Task DispatchInlineLocalUnicast(UnicastTransportOperation operation, BrokerEnvelope envelope, TransportTransaction transaction, DateTimeOffset? deliverAt, CancellationToken cancellationToken)
@@ -230,7 +229,9 @@ class NonDurableDispatcher(
             scope.CompleteDispatchCanceled(ex);
             await completion.ConfigureAwait(false);
         }
+#pragma warning disable CA1031
         catch (Exception ex)
+#pragma warning restore CA1031
         {
             scope.CompleteDispatchFailure(ex);
             await completion.ConfigureAwait(false);
