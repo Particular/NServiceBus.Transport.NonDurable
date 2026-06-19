@@ -1,12 +1,12 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.InlineExecution;
 
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using NServiceBus.Transport;
 using NUnit.Framework;
-using Transport;
 
 [TestFixture]
 public class When_receiving_immediate_recoverability_retry_keeps_same_scope_pending

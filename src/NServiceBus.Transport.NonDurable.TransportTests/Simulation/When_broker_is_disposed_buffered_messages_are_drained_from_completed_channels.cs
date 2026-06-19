@@ -1,12 +1,12 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.Simulation;
 
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using NServiceBus.Transport;
 using NUnit.Framework;
-using Transport;
 
 [TestFixture]
 public class When_broker_is_disposed_buffered_messages_are_drained_from_completed_channels

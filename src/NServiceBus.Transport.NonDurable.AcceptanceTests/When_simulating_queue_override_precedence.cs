@@ -1,13 +1,13 @@
-namespace NServiceBus.AcceptanceTests.Transport;
-
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using AcceptanceTesting;
-using EndpointTemplates;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
+using NServiceBus.AcceptanceTesting;
+using NServiceBus.AcceptanceTests.EndpointTemplates;
 using NUnit.Framework;
+
+namespace NServiceBus.AcceptanceTests;
 
 public class When_simulating_queue_override_precedence : NServiceBusAcceptanceTest
 {

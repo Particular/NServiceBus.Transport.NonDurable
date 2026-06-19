@@ -1,6 +1,6 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.InlineExecution;
 
 using System;
 using System.Buffers;

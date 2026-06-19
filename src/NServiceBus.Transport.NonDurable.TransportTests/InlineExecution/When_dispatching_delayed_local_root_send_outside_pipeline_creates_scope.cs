@@ -1,11 +1,11 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.InlineExecution;
 
 using System;
 using System.Threading.Tasks;
+using NServiceBus.Transport;
 using NUnit.Framework;
-using Transport;
 
 [TestFixture]
 public class When_dispatching_delayed_local_root_send_outside_pipeline_creates_scope

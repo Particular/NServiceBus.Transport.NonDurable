@@ -1,12 +1,12 @@
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.Simulation;
 
 using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.RateLimiting;
 using System.Threading.Tasks;
+using NServiceBus.Routing;
 using NServiceBus.Transport;
-using Routing;
 
 static class NonDurableBrokerSimulationTestHelper
 {

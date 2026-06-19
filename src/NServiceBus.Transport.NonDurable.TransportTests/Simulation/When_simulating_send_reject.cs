@@ -1,4 +1,4 @@
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.Simulation;
 
 using System;
 using System.Threading;

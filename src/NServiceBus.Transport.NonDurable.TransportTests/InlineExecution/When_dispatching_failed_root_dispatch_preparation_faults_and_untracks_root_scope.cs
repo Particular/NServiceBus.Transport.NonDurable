@@ -1,11 +1,12 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.InlineExecution;
 
 using System;
 using System.Threading.Tasks;
+using NServiceBus.Transport;
 using NUnit.Framework;
-using Transport;
+using Simulation;
 
 [TestFixture]
 public class When_dispatching_failed_root_dispatch_preparation_faults_and_untracks_root_scope

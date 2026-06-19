@@ -1,15 +1,13 @@
 using System;
-
-namespace NServiceBus.AcceptanceTests.Transport;
-
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using AcceptanceTesting;
-using AcceptanceTesting.Customization;
-using EndpointTemplates;
+using NServiceBus.AcceptanceTesting;
+using NServiceBus.AcceptanceTests.EndpointTemplates;
 using NUnit.Framework;
+
+namespace NServiceBus.AcceptanceTests;
 
 public class When_stress_testing_broker : NServiceBusAcceptanceTest
 {
@@ -84,8 +82,8 @@ public class When_stress_testing_broker : NServiceBusAcceptanceTest
             {
                 c.LimitMessageProcessingConcurrencyTo(20);
                 var routing = c.ConfigureRouting();
-                routing.RouteToEndpoint(typeof(TestMessage), Conventions.EndpointNamingConvention(typeof(Receiver)));
-                routing.RouteToEndpoint(typeof(KickoffMessage), Conventions.EndpointNamingConvention(typeof(Receiver)));
+                routing.RouteToEndpoint(typeof(TestMessage), AcceptanceTesting.Customization.Conventions.EndpointNamingConvention(typeof(Receiver)));
+                routing.RouteToEndpoint(typeof(KickoffMessage), AcceptanceTesting.Customization.Conventions.EndpointNamingConvention(typeof(Receiver)));
             });
     }
 
@@ -95,7 +93,7 @@ public class When_stress_testing_broker : NServiceBusAcceptanceTest
             EndpointSetup<DefaultServer>(c =>
             {
                 c.LimitMessageProcessingConcurrencyTo(20);
-                c.ConfigureRouting().RouteToEndpoint(typeof(CascadingMessage), Conventions.EndpointNamingConvention(typeof(FinalReceiver)));
+                c.ConfigureRouting().RouteToEndpoint(typeof(CascadingMessage), AcceptanceTesting.Customization.Conventions.EndpointNamingConvention(typeof(FinalReceiver)));
             });
 
         [Handler]

@@ -1,14 +1,15 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.OpenTelemetry;
 
 using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using NServiceBus.Transport;
+using NServiceBus.Transport.NonDurable.Tests;
 using NUnit.Framework;
-using Transport;
-using static NonDurableBrokerSimulationTestHelper;
+using static Simulation.NonDurableBrokerSimulationTestHelper;
 
 [TestFixture]
 public class When_emitting_process_span_in_non_inline_receive_path

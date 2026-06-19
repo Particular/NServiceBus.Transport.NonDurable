@@ -1,10 +1,10 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.InlineExecution;
 
 using System.Threading.Tasks;
+using NServiceBus.Transport;
 using NUnit.Framework;
-using Transport;
 
 [TestFixture]
 public class When_dispatching_publish_multicast_stays_non_inline

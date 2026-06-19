@@ -1,11 +1,11 @@
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.Simulation;
 
 using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using NServiceBus.Transport;
 using NUnit.Framework;
-using Transport;
 
 [TestFixture]
 public class When_simulating_receive_with_rate_limiter_factory

@@ -1,13 +1,13 @@
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.Simulation;
 
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using NServiceBus.DelayedDelivery;
+using NServiceBus.Routing;
 using NServiceBus.Transport;
 using NUnit.Framework;
-using Routing;
 using static NonDurableBrokerSimulationTestHelper;
 
 [TestFixture]

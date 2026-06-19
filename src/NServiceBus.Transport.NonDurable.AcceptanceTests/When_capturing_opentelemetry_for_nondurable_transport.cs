@@ -1,13 +1,13 @@
-namespace NServiceBus.AcceptanceTests.Transport;
-
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
-using AcceptanceTesting;
-using EndpointTemplates;
+using NServiceBus.AcceptanceTesting;
+using NServiceBus.AcceptanceTests.EndpointTemplates;
 using NUnit.Framework;
+
+namespace NServiceBus.AcceptanceTests;
 
 [NonParallelizable]
 public class When_capturing_opentelemetry_for_nondurable_transport : NServiceBusAcceptanceTest

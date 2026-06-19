@@ -1,12 +1,13 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.OpenTelemetry;
 
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
-using static NonDurableBrokerSimulationTestHelper;
+using Transport.NonDurable.Tests;
+using static Simulation.NonDurableBrokerSimulationTestHelper;
 
 [TestFixture]
 public class When_emitting_send_span
