@@ -25,7 +25,7 @@
   </ItemGroup>
   
   <ItemGroup>
-    <Folder Include="ApprovalFIles\" />
+    <Folder Include="ApprovalFiles\" />
   </ItemGroup>
 
 </Project>
