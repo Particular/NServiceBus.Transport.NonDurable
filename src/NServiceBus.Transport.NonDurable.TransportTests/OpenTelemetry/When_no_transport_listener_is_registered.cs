@@ -1,10 +1,10 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.OpenTelemetry;
 
 using System.Threading.Tasks;
 using NUnit.Framework;
-using static NonDurableBrokerSimulationTestHelper;
+using static Simulation.NonDurableBrokerSimulationTestHelper;
 
 [TestFixture]
 public class When_no_transport_listener_is_registered

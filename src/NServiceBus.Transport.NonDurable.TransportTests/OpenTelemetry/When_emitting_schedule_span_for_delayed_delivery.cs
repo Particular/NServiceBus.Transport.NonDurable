@@ -1,15 +1,16 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.OpenTelemetry;
 
 using System;
 using System.Linq;
 using System.Threading.Tasks;
-using DelayedDelivery;
+using NServiceBus.DelayedDelivery;
+using NServiceBus.Routing;
+using NServiceBus.Transport;
+using NServiceBus.Transport.NonDurable.Tests;
 using NUnit.Framework;
-using Routing;
-using Transport;
-using static NonDurableBrokerSimulationTestHelper;
+using static Simulation.NonDurableBrokerSimulationTestHelper;
 
 [TestFixture]
 public class When_emitting_schedule_span_for_delayed_delivery

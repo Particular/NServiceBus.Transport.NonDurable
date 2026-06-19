@@ -1,13 +1,13 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.InlineExecution;
 
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using DelayedDelivery;
+using NServiceBus.DelayedDelivery;
+using NServiceBus.Transport;
 using NUnit.Framework;
-using Transport;
 
 [TestFixture]
 public class When_receiving_delayed_retry_recoverability_keeps_same_scope_pending

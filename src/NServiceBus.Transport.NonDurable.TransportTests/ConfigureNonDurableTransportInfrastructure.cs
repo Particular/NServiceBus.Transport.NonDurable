@@ -2,7 +2,7 @@ namespace NServiceBus.TransportTests;
 
 using System.Threading;
 using System.Threading.Tasks;
-using Transport;
+using NServiceBus.Transport;
 
 class ConfigureNonDurableTransportInfrastructure : IConfigureTransportInfrastructure
 {

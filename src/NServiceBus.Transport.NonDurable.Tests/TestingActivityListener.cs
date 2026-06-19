@@ -1,4 +1,4 @@
-namespace NServiceBus;
+namespace NServiceBus.Transport.NonDurable.Tests;
 
 using System;
 using System.Collections.Concurrent;

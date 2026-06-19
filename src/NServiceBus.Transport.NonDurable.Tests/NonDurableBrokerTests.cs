@@ -1,13 +1,13 @@
-namespace NServiceBus;
+namespace NServiceBus.Transport.NonDurable.Tests;
 
 using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using NServiceBus.Routing;
+using NServiceBus.Transport;
 using NUnit.Framework;
-using Routing;
-using Transport;
 
 [TestFixture]
 public class NonDurableBrokerTests

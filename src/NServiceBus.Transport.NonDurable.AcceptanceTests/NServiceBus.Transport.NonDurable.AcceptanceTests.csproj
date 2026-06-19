@@ -4,7 +4,8 @@
         <TargetFramework>net10.0</TargetFramework>
         <SignAssembly>true</SignAssembly>
         <AssemblyOriginatorKeyFile>..\NServiceBusTests.snk</AssemblyOriginatorKeyFile>
-        <RootNamespace>NServiceBus.NonDurable.AcceptanceTests</RootNamespace>
+        <AnalysisLevel>10.0</AnalysisLevel>
+        <RootNamespace>NServiceBus.AcceptanceTests</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>

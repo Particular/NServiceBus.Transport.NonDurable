@@ -1,4 +1,4 @@
-﻿namespace NServiceBus.NonDurable.Tests.API;
+﻿namespace NServiceBus.Transport.NonDurable.Tests.API;
 
 using NUnit.Framework;
 using Particular.Approvals;

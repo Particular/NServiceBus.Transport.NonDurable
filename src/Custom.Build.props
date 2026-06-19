@@ -1,7 +1,7 @@
 <Project>
 
   <PropertyGroup>
-    <AnalysisLevel>10.0-minimum</AnalysisLevel>
+    <AnalysisLevel>10.0-all</AnalysisLevel>
   </PropertyGroup>
 
   <PropertyGroup>

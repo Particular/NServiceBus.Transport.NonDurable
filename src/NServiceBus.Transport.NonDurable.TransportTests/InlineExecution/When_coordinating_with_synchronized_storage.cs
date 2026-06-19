@@ -1,6 +1,6 @@
 #nullable enable
 
-namespace NServiceBus.TransportTests;
+namespace NServiceBus.TransportTests.InlineExecution;
 
 using System;
 using System.Buffers;
@@ -8,11 +8,11 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Transactions;
-using Extensibility;
+using NServiceBus.Extensibility;
+using NServiceBus.Outbox;
+using NServiceBus.Persistence;
+using NServiceBus.Transport;
 using NUnit.Framework;
-using Outbox;
-using Persistence;
-using Transport;
 
 // Exercises the cross-repo transaction coordination seam at the unit level:
 // the transport publishes a CommittableTransaction (as Transaction) into the

@@ -8,12 +8,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Transactions;
-using DelayedDelivery;
-using Extensibility;
 using Microsoft.Extensions.Time.Testing;
-using Performance.TimeToBeReceived;
-using Routing;
-using Transport;
+using NServiceBus.DelayedDelivery;
+using NServiceBus.Extensibility;
+using NServiceBus.Performance.TimeToBeReceived;
+using NServiceBus.Routing;
+using NServiceBus.Transport;
 
 static class InlineExecutionTestHelper
 {
