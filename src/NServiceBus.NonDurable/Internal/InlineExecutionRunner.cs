@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Transactions;
 using Extensibility;
 using Routing;
 using Transport;
@@ -32,12 +33,17 @@ sealed class InlineExecutionRunner(
     {
         var headers = new Dictionary<string, string>(envelope.Headers);
         var transportTransaction = new TransportTransaction();
-        NonDurableReceiveTransaction? receiveTransaction = null;
+        CommittableTransaction? committable = null;
+        CommittableTransaction? errorCommittable = null;
+        PendingEnvelopeEnlistment? enlistment = null;
 
         if (transactionMode == TransportTransactionMode.SendsAtomicWithReceive)
         {
-            receiveTransaction = new NonDurableReceiveTransaction();
-            transportTransaction.Set<INonDurableReceiveTransaction>(receiveTransaction);
+            committable = new CommittableTransaction();
+            transportTransaction.Set<Transaction>(committable);
+            enlistment = new PendingEnvelopeEnlistment();
+            committable.EnlistVolatile(enlistment, EnlistmentOptions.None);
+            transportTransaction.Set(enlistment);
         }
 
         transportTransaction.Set(ReceivePipelineTransportTransactionMarker.Instance);
@@ -71,14 +77,21 @@ sealed class InlineExecutionRunner(
             receiveAddress,
             contextBag);
 
+        var previousAmbient = Transaction.Current;
+        if (committable != null)
+        {
+            Transaction.Current = committable;
+        }
+
         try
         {
             await onMessage(messageContext, ProcessingCancellationToken).ConfigureAwait(false);
 
-            if (receiveTransaction != null)
+            if (committable != null)
             {
-                receiveTransaction.Commit();
-                await CommitPendingToBrokerAsync(receiveTransaction, ProcessingCancellationToken).ConfigureAwait(false);
+                Transaction.Current = previousAmbient;
+                committable.Commit();
+                await CommitPendingToBrokerAsync(enlistment!, ProcessingCancellationToken).ConfigureAwait(false);
             }
 
             inlineState?.Scope.CompleteDispatchSuccess();
@@ -87,7 +100,17 @@ sealed class InlineExecutionRunner(
         catch (Exception ex) when (ex is not OperationCanceledException || !ProcessingCancellationToken.IsCancellationRequested)
         {
             NonDurableTransportTracing.MarkError(transportActivity, ex);
-            receiveTransaction?.Rollback();
+            Transaction.Current = previousAmbient;
+            committable?.Rollback();
+
+            if (committable != null)
+            {
+                errorCommittable = new CommittableTransaction();
+                transportTransaction.Set<Transaction>(errorCommittable);
+                enlistment = new PendingEnvelopeEnlistment();
+                errorCommittable.EnlistVolatile(enlistment, EnlistmentOptions.None);
+                transportTransaction.Set(enlistment);
+            }
 
             var errorContext = new ErrorContext(
                 ex,
@@ -99,12 +122,16 @@ sealed class InlineExecutionRunner(
                 receiveAddress,
                 contextBag);
 
-            var result = await HandleErrorAsync(errorContext, messageContext, receiveTransaction, cancellationToken).ConfigureAwait(false);
+            var result = await HandleErrorAsync(errorContext, messageContext, cancellationToken).ConfigureAwait(false);
 
-            if (receiveTransaction != null)
+            if (result == ErrorHandleResult.Handled && errorCommittable != null)
             {
-                receiveTransaction.Commit();
-                await CommitPendingToBrokerAsync(receiveTransaction, ProcessingCancellationToken).ConfigureAwait(false);
+                errorCommittable.Commit();
+                await CommitPendingToBrokerAsync(enlistment!, ProcessingCancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                errorCommittable?.Rollback();
             }
 
             if (result == ErrorHandleResult.RetryRequired)
@@ -131,6 +158,9 @@ sealed class InlineExecutionRunner(
         }
         finally
         {
+            Transaction.Current = previousAmbient;
+            committable?.Dispose();
+            errorCommittable?.Dispose();
             transportActivity?.Dispose();
         }
     }
@@ -138,7 +168,6 @@ sealed class InlineExecutionRunner(
     async Task<ErrorHandleResult> HandleErrorAsync(
         ErrorContext errorContext,
         MessageContext messageContext,
-        NonDurableReceiveTransaction? receiveTransaction,
         CancellationToken pumpCancellationToken)
     {
         try
@@ -147,51 +176,50 @@ sealed class InlineExecutionRunner(
         }
         catch (Exception onErrorException) when (onErrorException is not OperationCanceledException || !ProcessingCancellationToken.IsCancellationRequested)
         {
-            receiveTransaction?.Rollback();
             criticalErrorAction($"Failed to execute recoverability policy for message with native ID: `{messageContext.NativeMessageId}`", onErrorException, pumpCancellationToken);
             return ErrorHandleResult.RetryRequired;
         }
     }
 
-    async Task CommitPendingToBrokerAsync(NonDurableReceiveTransaction receiveTransaction, CancellationToken cancellationToken)
+    async Task CommitPendingToBrokerAsync(PendingEnvelopeEnlistment enlistment, CancellationToken cancellationToken)
     {
+        var envelopes = enlistment.GetPendingAndClear();
+        if (envelopes.Count == 0)
+        {
+            return;
+        }
+
         if (dispatcher == null)
         {
-            foreach (var envelope in receiveTransaction.GetPendingAndClear())
+            foreach (var envelope in envelopes)
             {
                 var queue = broker.GetOrCreateQueue(envelope.Destination);
                 await queue.Enqueue(envelope, cancellationToken).ConfigureAwait(false);
+                envelope.Dispose();
             }
+            return;
         }
-        else
+
+        var operations = new TransportOperation[envelopes.Count];
+        for (var i = 0; i < envelopes.Count; i++)
         {
-            var envelopes = receiveTransaction.GetPendingAndClear();
-            if (envelopes.Count == 0)
-            {
-                return;
-            }
+            var pending = envelopes[i];
+            operations[i] = new TransportOperation(
+                new OutgoingMessage(pending.MessageId, new Dictionary<string, string>(pending.Headers), pending.Body),
+                new UnicastAddressTag(pending.Destination),
+                [],
+                DispatchConsistency.Default);
+        }
 
-            var operations = new TransportOperation[envelopes.Count];
-            for (var i = 0; i < envelopes.Count; i++)
+        try
+        {
+            await dispatcher.Dispatch(new TransportOperations(operations), new TransportTransaction(), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            foreach (var envelope in envelopes)
             {
-                var pending = envelopes[i];
-                operations[i] = new TransportOperation(
-                    new OutgoingMessage(pending.MessageId, new Dictionary<string, string>(pending.Headers), pending.Body),
-                    new UnicastAddressTag(pending.Destination),
-                    [],
-                    DispatchConsistency.Default);
-            }
-
-            try
-            {
-                await dispatcher.Dispatch(new TransportOperations(operations), new TransportTransaction(), cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                foreach (var envelope in envelopes)
-                {
-                    envelope.Dispose();
-                }
+                envelope.Dispose();
             }
         }
     }
