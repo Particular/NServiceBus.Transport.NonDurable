@@ -39,9 +39,14 @@ namespace NServiceBus
         public required int PermitLimit { get; init; }
         public required System.TimeSpan Window { get; init; }
     }
+    [System.Serializable]
     public sealed class NonDurableSimulationException : System.Exception
     {
+        public NonDurableSimulationException() { }
+        public NonDurableSimulationException(string message) { }
+        public NonDurableSimulationException(string message, System.Exception innerException) { }
         public NonDurableSimulationException(string message, System.TimeSpan retryAfter, System.TimeProvider timeProvider) { }
+        public NonDurableSimulationException(string message, System.TimeSpan retryAfter, System.TimeProvider timeProvider, System.Exception innerException) { }
         public System.TimeSpan RetryAfter { get; }
     }
     public enum NonDurableSimulationMode
