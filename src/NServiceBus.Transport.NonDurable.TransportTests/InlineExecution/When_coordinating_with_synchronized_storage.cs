@@ -118,7 +118,7 @@ public class When_coordinating_with_synchronized_storage
 
         await runner.Process(ReceivedEnvelope());
 
-        Assert.That(captured!.TryGet(out Transaction _), Is.False);
+        Assert.That(captured!.TryGet(out Transaction? _), Is.False);
     }
 
     static BrokerEnvelope ReceivedEnvelope() =>
