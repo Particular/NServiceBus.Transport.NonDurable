@@ -15,7 +15,7 @@ public class When_capturing_opentelemetry_for_nondurable_transport : NServiceBus
     [Test]
     public async Task Should_surface_transport_and_core_spans_in_a_single_chain()
     {
-        using var listener = new AcceptanceActivityListener("NServiceBus.Core", "NServiceBus.NonDurable");
+        using var listener = new AcceptanceActivityListener("NServiceBus.Core", "NServiceBus.Transport.NonDurable");
 
         var context = await Scenario.Define<Context>()
             .WithEndpoint<Endpoint>(builder => builder.When(session => session.SendLocal(new StartMessage())))
@@ -24,8 +24,8 @@ public class When_capturing_opentelemetry_for_nondurable_transport : NServiceBus
 
         Assert.That(context.MessageHandled, Is.True);
 
-        var transportSendActivities = listener.CompletedActivities.Where(activity => activity.Source.Name == "NServiceBus.NonDurable" && activity.OperationName == "NServiceBus.NonDurable.Send").ToList();
-        var transportProcessActivities = listener.CompletedActivities.Where(activity => activity.Source.Name == "NServiceBus.NonDurable" && activity.OperationName == "NServiceBus.NonDurable.Process").ToList();
+        var transportSendActivities = listener.CompletedActivities.Where(activity => activity.Source.Name == "NServiceBus.Transport.NonDurable" && activity.OperationName == "NServiceBus.Transport.NonDurable.Send").ToList();
+        var transportProcessActivities = listener.CompletedActivities.Where(activity => activity.Source.Name == "NServiceBus.Transport.NonDurable" && activity.OperationName == "NServiceBus.Transport.NonDurable.Process").ToList();
         var coreReceiveActivities = listener.CompletedActivities.Where(activity => activity.Source.Name == "NServiceBus.Core" && activity.OperationName == "NServiceBus.Diagnostics.ReceiveMessage").ToList();
         var handlerActivities = listener.CompletedActivities.Where(activity => activity.Source.Name == "NServiceBus.Core" && activity.OperationName == "NServiceBus.Diagnostics.InvokeHandler").ToList();
 

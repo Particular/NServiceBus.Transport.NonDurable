@@ -4,11 +4,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>..\NServiceBusTests.snk</AssemblyOriginatorKeyFile>
+    <RootNamespace>NServiceBus.NonDurable.Tests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="NServiceBus" Version="10.2.6" />
-    <ProjectReference Include="..\NServiceBus.NonDurable\NServiceBus.NonDurable.csproj" />
+    <ProjectReference Include="..\NServiceBus.Transport.NonDurable\NServiceBus.Transport.NonDurable.csproj" />
   </ItemGroup>
 
   <ItemGroup>
