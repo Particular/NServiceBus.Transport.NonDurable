@@ -7,11 +7,11 @@ using System.Linq;
 
 static class NonDurableTransportTracing
 {
-    public const string ActivitySourceName = "NServiceBus.NonDurable";
+    public const string ActivitySourceName = "NServiceBus.Transport.NonDurable";
 
-    public const string SendActivityName = "NServiceBus.NonDurable.Send";
-    public const string ScheduleActivityName = "NServiceBus.NonDurable.Schedule";
-    public const string ProcessActivityName = "NServiceBus.NonDurable.Process";
+    public const string SendActivityName = "NServiceBus.Transport.NonDurable.Send";
+    public const string ScheduleActivityName = "NServiceBus.Transport.NonDurable.Schedule";
+    public const string ProcessActivityName = "NServiceBus.Transport.NonDurable.Process";
 
     const string MessagingSystem = "messaging.system";
     const string DestinationName = "messaging.destination.name";

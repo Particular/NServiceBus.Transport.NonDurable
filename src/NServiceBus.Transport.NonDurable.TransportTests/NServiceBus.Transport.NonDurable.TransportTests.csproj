@@ -4,12 +4,13 @@
     <TargetFramework>net10.0</TargetFramework>
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>..\NServiceBusTests.snk</AssemblyOriginatorKeyFile>
+    <RootNamespace>NServiceBus.NonDurable.TransportTests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="NServiceBus" Version="10.2.6" />
     <PackageReference Include="NServiceBus.TransportTests.Sources" Version="10.2.6" GeneratePathProperty="true" />
-    <ProjectReference Include="..\NServiceBus.NonDurable\NServiceBus.NonDurable.csproj" />
+    <ProjectReference Include="..\NServiceBus.Transport.NonDurable\NServiceBus.Transport.NonDurable.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,7 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\NServiceBus.NonDurable.Tests\TestingActivityListener.cs">
+    <Compile Include="..\NServiceBus.Transport.NonDurable.Tests\TestingActivityListener.cs">
       <Link>OpenTelemetry\TestingActivityListener.cs</Link>
     </Compile>
   </ItemGroup>

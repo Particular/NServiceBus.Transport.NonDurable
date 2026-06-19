@@ -156,5 +156,5 @@ static class InlineExecutionTestHelper
 
     public static FakeTimeProvider CreateFakeTimeProvider() => new(new DateTimeOffset(2099, 03, 28, 12, 0, 0, TimeSpan.Zero));
 
-    const string InlineRecoverabilityActionKey = "NServiceBus.NonDurable.InlineRecoverabilityAction";
+    const string InlineRecoverabilityActionKey = "NServiceBus.Transport.NonDurable.InlineRecoverabilityAction";
 }
