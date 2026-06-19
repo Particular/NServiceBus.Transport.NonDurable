@@ -30,13 +30,13 @@ public class When_dispatching_user_requested_delayed_local_dispatch_from_receive
 
         var pending = GetPendingEnvelopes(receiveTransaction);
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(task.IsCompletedSuccessfully, Is.True);
             Assert.That(task, Is.Not.SameAs(GetCompletion(scope)));
             Assert.That(pending, Has.Count.EqualTo(1));
             Assert.That(GetInlineState(pending.Single()), Is.Null);
-        });
+        }
 
         committable.Dispose();
     }

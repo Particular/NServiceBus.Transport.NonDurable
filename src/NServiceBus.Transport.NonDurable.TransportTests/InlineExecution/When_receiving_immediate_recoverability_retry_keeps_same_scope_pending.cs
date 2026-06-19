@@ -53,12 +53,12 @@ public class When_receiving_immediate_recoverability_retry_keeps_same_scope_pend
 
         await firstAttemptFailed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(rootTask.IsCompleted, Is.False);
             Assert.That(firstScope, Is.Not.Null);
             Assert.That(GetPendingOperations(firstScope!), Is.EqualTo(1));
-        });
+        }
 
         releaseSecondAttempt.TrySetResult();
 

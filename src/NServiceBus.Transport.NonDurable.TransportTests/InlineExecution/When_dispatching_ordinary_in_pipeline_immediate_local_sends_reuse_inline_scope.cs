@@ -58,13 +58,13 @@ public class When_dispatching_ordinary_in_pipeline_immediate_local_sends_reuse_i
         var sendTask = await handlerDispatchedSend.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var childScope = await childHandledScope.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(rootInlineState, Is.Not.Null);
             Assert.That(sendTask.IsCompletedSuccessfully, Is.True);
             Assert.That(childScope, Is.Not.Null);
             Assert.That(childScope, Is.SameAs(GetInlineScope(rootInlineState!)));
-        });
+        }
 
         allowHandlerToComplete.TrySetResult();
         await task.WaitAsync(TimeSpan.FromSeconds(5));

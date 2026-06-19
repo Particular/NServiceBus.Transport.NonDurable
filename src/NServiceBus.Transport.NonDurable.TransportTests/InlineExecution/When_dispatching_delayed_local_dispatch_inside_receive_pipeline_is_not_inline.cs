@@ -43,11 +43,11 @@ public class When_dispatching_delayed_local_dispatch_inside_receive_pipeline_is_
 
         var observation = await handlerDispatchedDelayedSend.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(observation.Task.IsCompletedSuccessfully, Is.True);
             Assert.That(GetInlineState(observation.Envelope), Is.Null);
-        });
+        }
 
         allowHandlerToComplete.TrySetResult();
         await receiver.StopReceive();

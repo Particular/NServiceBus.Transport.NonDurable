@@ -23,11 +23,11 @@ public class When_dispatching_delayed_local_root_send_outside_pipeline_creates_s
         Assert.That(broker.TryDequeueDelayed(DateTimeOffset.UtcNow + TimeSpan.FromMinutes(2), out var envelope), Is.True);
         var inlineState = GetInlineState(envelope!);
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(inlineState, Is.Not.Null);
             Assert.That(GetIsRootDispatch(inlineState!), Is.True);
             Assert.That(task, Is.SameAs(GetCompletion(GetInlineScope(inlineState!))));
-        });
+        }
     }
 }

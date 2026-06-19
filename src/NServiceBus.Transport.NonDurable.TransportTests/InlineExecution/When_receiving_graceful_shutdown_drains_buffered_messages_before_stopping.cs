@@ -58,10 +58,10 @@ public class When_receiving_graceful_shutdown_drains_buffered_messages_before_st
         await firstDispatch.WaitAsync(TimeSpan.FromSeconds(5));
         await secondDispatch.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(handledMessages, Is.EqualTo(2));
             Assert.That(broker.GetOrCreateQueue("input").Count, Is.EqualTo(0));
-        });
+        }
     }
 }
