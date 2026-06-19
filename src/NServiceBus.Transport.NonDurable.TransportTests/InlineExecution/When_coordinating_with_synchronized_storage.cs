@@ -29,24 +29,22 @@ public class When_coordinating_with_synchronized_storage
         var session = new FakeStorageSession();
         var (runner, dispatcher) = NewRunner();
 
-        runner.Initialize(
-            (messageContext, ct) =>
+        runner.Initialize(async (messageContext, ct) =>
             {
-                _ = session.TryOpen(messageContext.TransportTransaction, new ContextBag(), ct);
+                await session.TryOpen(messageContext.TransportTransaction, new ContextBag(), ct);
                 session.ApplyMutation();
                 messageContext.TransportTransaction.Get<PendingEnvelopeEnlistment>().Add(NewEnvelope());
-                return Task.CompletedTask;
             },
             (_, _) => Task.FromResult(ErrorHandleResult.Handled));
 
         await runner.Process(ReceivedEnvelope());
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(session.AppliedOnPrepare, Is.True, "saga mutation applied during Commit");
             Assert.That(session.RolledBack, Is.False, "saga must not roll back on success");
             Assert.That(dispatcher.FlushedCount, Is.EqualTo(1), "exactly one enlisted send flushed");
-        });
+        }
     }
 
     [Test]
@@ -56,10 +54,9 @@ public class When_coordinating_with_synchronized_storage
         var pool = new TrackingPool();
         var (runner, dispatcher) = NewRunner();
 
-        runner.Initialize(
-            (messageContext, ct) =>
+        runner.Initialize(async (messageContext, ct) =>
             {
-                _ = session.TryOpen(messageContext.TransportTransaction, new ContextBag(), ct);
+                await session.TryOpen(messageContext.TransportTransaction, new ContextBag(), ct);
                 session.ApplyMutation();
                 messageContext.TransportTransaction.Get<PendingEnvelopeEnlistment>().Add(NewEnvelopeWith(pool));
                 throw new InvalidOperationException("boom");
@@ -68,13 +65,13 @@ public class When_coordinating_with_synchronized_storage
 
         await runner.Process(ReceivedEnvelope());
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(session.RolledBack, Is.True, "saga mutation rolled back on handler failure");
             Assert.That(session.AppliedOnPrepare, Is.False, "saga Prepare must not run on failure");
             Assert.That(pool.Returned, Is.EqualTo(1), "enlisted send buffer returned to pool on rollback");
             Assert.That(dispatcher.FlushedCount, Is.EqualTo(0), "no enlisted send flushed on failure");
-        });
+        }
     }
 
     [Test]
@@ -87,11 +84,11 @@ public class When_coordinating_with_synchronized_storage
 
         transportTransaction.Set<Transaction>(committable);
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(transportTransaction.TryGet(out Transaction? published), Is.True);
             Assert.That(published, Is.SameAs(committable));
-        });
+        }
 
         committable.Dispose();
     }

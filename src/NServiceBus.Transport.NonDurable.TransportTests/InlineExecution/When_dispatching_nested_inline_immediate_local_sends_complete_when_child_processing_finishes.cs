@@ -55,11 +55,11 @@ public class When_dispatching_nested_inline_immediate_local_sends_complete_when_
         var parent = await parentObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await childProcessed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(parent.Scope, Is.Not.Null);
             Assert.That(parent.Task.IsCompletedSuccessfully, Is.True);
-        });
+        }
 
         await rootTask.WaitAsync(TimeSpan.FromSeconds(5));
 

@@ -57,11 +57,11 @@ public class When_dispatching_nested_inline_reentrant_dispatch_returns_child_pro
         var nestedTask = await nestedSendObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await childProcessed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(nestedTask.IsCompletedSuccessfully, Is.True);
             Assert.That(rootTask.IsCompleted, Is.False);
-        });
+        }
 
         releaseParentHandler.TrySetResult();
         await rootTask.WaitAsync(TimeSpan.FromSeconds(5));

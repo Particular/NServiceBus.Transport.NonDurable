@@ -20,13 +20,13 @@ public class When_dispatching_immediate_local_unicast_root_send_creates_scope
         var inlineState = GetInlineState(envelope);
         var scope = GetInlineScope(inlineState!);
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(task.IsCompleted, Is.False);
             Assert.That(inlineState, Is.Not.Null);
             Assert.That(GetIsRootDispatch(inlineState!), Is.True);
             Assert.That(GetDepth(inlineState!), Is.EqualTo(0));
             Assert.That(task, Is.SameAs(GetCompletion(scope)));
-        });
+        }
     }
 }

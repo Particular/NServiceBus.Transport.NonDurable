@@ -47,11 +47,11 @@ public class When_committing_enlisted_sends_through_dispatcher
         await runner.Process(receivedEnvelope);
         receivedEnvelope.Dispose();
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(dispatcher.CapturedBody, Is.EqualTo(new byte[] { 1, 2, 3 }));
             Assert.That(pool.ReturnedBuffers, Is.EqualTo(1));
-        });
+        }
     }
 
     static BrokerEnvelope CreateEnvelope(TrackingArrayPool pool, byte[] body)

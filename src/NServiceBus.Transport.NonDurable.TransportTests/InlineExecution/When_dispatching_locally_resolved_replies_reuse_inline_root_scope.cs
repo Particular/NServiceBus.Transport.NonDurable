@@ -58,13 +58,13 @@ public class When_dispatching_locally_resolved_replies_reuse_inline_root_scope
         var replyTask = await handlerDispatchedReply.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var childScope = await replyHandledScope.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(rootInlineState, Is.Not.Null);
             Assert.That(childScope, Is.Not.Null);
             Assert.That(childScope, Is.SameAs(GetInlineScope(rootInlineState!)));
             Assert.That(replyTask.IsCompletedSuccessfully, Is.True);
-        });
+        }
 
         allowHandlerToComplete.TrySetResult();
         await task.WaitAsync(TimeSpan.FromSeconds(5));

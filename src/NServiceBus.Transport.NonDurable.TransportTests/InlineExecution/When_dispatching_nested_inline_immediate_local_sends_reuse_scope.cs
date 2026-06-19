@@ -55,12 +55,12 @@ public class When_dispatching_nested_inline_immediate_local_sends_reuse_scope
         var parent = await parentObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var childScope = await childObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(parent.Scope, Is.Not.Null);
             Assert.That(childScope, Is.Not.Null);
             Assert.That(childScope, Is.SameAs(parent.Scope));
-        });
+        }
 
         await receiver.StopReceive();
     }

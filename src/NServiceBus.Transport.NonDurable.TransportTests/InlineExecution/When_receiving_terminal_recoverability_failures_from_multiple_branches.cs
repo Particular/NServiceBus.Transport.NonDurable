@@ -62,11 +62,11 @@ public class When_receiving_terminal_recoverability_failures_from_multiple_branc
 
         var exception = await CatchException(rootTask);
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(exception, Is.Not.InstanceOf<AggregateException>());
             Assert.That(exception, Is.AnyOf(firstFailure, secondFailure));
-        });
+        }
 
         await receiver.StopReceive();
     }

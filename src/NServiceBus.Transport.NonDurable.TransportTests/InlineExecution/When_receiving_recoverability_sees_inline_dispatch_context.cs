@@ -40,7 +40,7 @@ public class When_receiving_recoverability_sees_inline_dispatch_context
         var scope = await observedScope.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.That(async () => await rootTask.WaitAsync(TimeSpan.FromSeconds(5)), Throws.TypeOf<InvalidOperationException>());
 
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(dispatchContext, Is.Not.Null);
             Assert.That(scope, Is.Not.Null);
@@ -49,7 +49,7 @@ public class When_receiving_recoverability_sees_inline_dispatch_context
                 Assert.That(GetInlineDispatchDepth(dispatchContext), Is.EqualTo(0));
                 Assert.That(GetInlineDispatchScope(dispatchContext), Is.SameAs(scope));
             }
-        });
+        }
 
         await receiver.StopReceive();
     }
