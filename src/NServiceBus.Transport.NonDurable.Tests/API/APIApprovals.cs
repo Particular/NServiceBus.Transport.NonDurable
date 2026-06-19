@@ -1,4 +1,4 @@
-﻿namespace NServiceBus.Transport.NonDurable.Tests.API;
+﻿namespace NServiceBus.Transport.NonDurable.Tests;
 
 using NUnit.Framework;
 using Particular.Approvals;
@@ -8,7 +8,7 @@ using PublicApiGenerator;
 public class APIApprovals
 {
     [Test]
-    public void ApproveNServiceBus()
+    public void ApproveNonDurableTransport()
     {
         var publicApi = typeof(NonDurableBroker).Assembly.GeneratePublicApi(new ApiGeneratorOptions
         {
