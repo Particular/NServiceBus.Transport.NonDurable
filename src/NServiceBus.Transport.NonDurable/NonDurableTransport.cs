@@ -1,5 +1,6 @@
 namespace NServiceBus;
 
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -40,6 +41,9 @@ public class NonDurableTransport : TransportDefinition
     /// <inheritdoc />
     public override Task<TransportInfrastructure> Initialize(HostSettings hostSettings, ReceiveSettings[] receivers, string[] sendingAddresses, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(hostSettings);
+        ArgumentNullException.ThrowIfNull(receivers);
+
         var broker = ResolveBroker(hostSettings);
         var infrastructure = new NonDurableTransportInfrastructure(hostSettings, receivers, this, broker);
         return Task.FromResult<TransportInfrastructure>(infrastructure);
