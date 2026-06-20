@@ -39,6 +39,11 @@ sealed class InlineExecutionRunner(
 
         if (transactionMode == TransportTransactionMode.SendsAtomicWithReceive)
         {
+            // Atomicity applies to the non-outbox saga + synchronized-storage case: the
+            // NonDurable persistence enlists volatile into this CommittableTransaction via
+            // the dedicated bag key. When the outbox is enabled, the persistence joins
+            // NonDurableOutboxTransaction instead, which is NOT enlisted here and provides
+            // its own consistency boundary.
             committable = new CommittableTransaction();
             transportTransaction.Set(NonDurableTransactionKeys.Transaction, committable);
             enlistment = new PendingEnvelopeEnlistment();
@@ -80,8 +85,16 @@ sealed class InlineExecutionRunner(
         var previousAmbient = Transaction.Current;
         if (committable != null)
         {
+            // The ambient transaction is published so ambient-transaction-aware components
+            // (including the NonDurable persistence transport-adaptation path) can enlist into
+            // the per-Process CommittableTransaction. It is restored to previousAmbient before
+            // Commit/Rollback and again in finally. The coordinator is also published under the
+            // dedicated cross-repo string key NonDurableTransactionKeys.Transaction for consumers
+            // that read the bag explicitly.
             Transaction.Current = committable;
         }
+
+        var committed = false;
 
         try
         {
@@ -91,6 +104,7 @@ sealed class InlineExecutionRunner(
             {
                 Transaction.Current = previousAmbient;
                 committable.Commit();
+                committed = true;
                 await CommitPendingToBrokerAsync(enlistment!, ProcessingCancellationToken).ConfigureAwait(false);
             }
 
@@ -101,10 +115,22 @@ sealed class InlineExecutionRunner(
         {
             NonDurableTransportTracing.MarkError(transportActivity, ex);
             Transaction.Current = previousAmbient;
-            committable?.Rollback();
+            // A CommittableTransaction is single-use: once Commit() has succeeded it cannot be
+            // rolled back (Rollback() on a committed tx throws TransactionException). If the
+            // post-Commit enlisted-send flush threw, the saga/persistence mutations are already
+            // committed; surface the flush failure to recoverability instead of attempting an
+            // invalid rollback that would mask the original exception and leak pooled buffers.
+            if (!committed)
+            {
+                committable?.Rollback();
+            }
 
             if (committable != null)
             {
+                // Publish a fresh error transaction for recoverability. Core's RecoverabilityExecutor
+                // dispatches the error-queue move with DispatchConsistency.Default against
+                // errorContext.TransportTransaction, so the move enlists into this tx and is
+                // committed atomically on ErrorHandleResult.Handled (or rolled back on RetryRequired).
                 errorCommittable = new CommittableTransaction();
                 transportTransaction.Set(NonDurableTransactionKeys.Transaction, errorCommittable);
                 enlistment = new PendingEnvelopeEnlistment();
@@ -126,8 +152,26 @@ sealed class InlineExecutionRunner(
 
             if (result == ErrorHandleResult.Handled && errorCommittable != null)
             {
-                errorCommittable.Commit();
-                await CommitPendingToBrokerAsync(enlistment!, ProcessingCancellationToken).ConfigureAwait(false);
+                // errorCommittable.Commit() may throw TransactionAbortedException if an RM
+                // enlisted via the bag key force-rolls back at Prepare. If Commit() succeeded
+                // and the subsequent flush threw, the tx is already committed and must not be
+                // rolled back (Rollback on a committed tx throws TransactionException and would
+                // mask the flush failure). Mirror the main-path committed-flag discipline.
+                var errorCommitted = false;
+                try
+                {
+                    errorCommittable.Commit();
+                    errorCommitted = true;
+                    await CommitPendingToBrokerAsync(enlistment!, ProcessingCancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception commitEx) when (commitEx is not OperationCanceledException || !ProcessingCancellationToken.IsCancellationRequested)
+                {
+                    if (!errorCommitted)
+                    {
+                        errorCommittable.Rollback();
+                    }
+                    throw;
+                }
             }
             else
             {

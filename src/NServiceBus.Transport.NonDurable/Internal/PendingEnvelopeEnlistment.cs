@@ -8,19 +8,25 @@ sealed class PendingEnvelopeEnlistment : IEnlistmentNotification
 {
     public bool Add(BrokerEnvelope envelope)
     {
-        if (Volatile.Read(ref completed) != 0)
+        lock (gate)
         {
-            return false;
+            if (completed != 0)
+            {
+                return false;
+            }
+            pendingEnvelopes.Add(envelope);
+            return true;
         }
-        pendingEnvelopes.Add(envelope);
-        return true;
     }
 
     public IReadOnlyList<BrokerEnvelope> GetPendingAndClear()
     {
-        var result = pendingEnvelopes;
-        pendingEnvelopes = [];
-        return result;
+        lock (gate)
+        {
+            var result = pendingEnvelopes;
+            pendingEnvelopes = [];
+            return result;
+        }
     }
 
     public void Prepare(PreparingEnlistment preparingEnlistment) => preparingEnlistment.Prepared();
@@ -46,17 +52,29 @@ sealed class PendingEnvelopeEnlistment : IEnlistmentNotification
     void DisposeAndClear()
     {
         MarkAsCompleted();
-        foreach (var envelope in pendingEnvelopes)
+        List<BrokerEnvelope> toDispose;
+        lock (gate)
+        {
+            toDispose = pendingEnvelopes;
+            pendingEnvelopes = [];
+        }
+        foreach (var envelope in toDispose)
         {
             envelope.Dispose();
         }
-        pendingEnvelopes.Clear();
     }
 
     void MarkAsCompleted() => Volatile.Write(ref completed, 1);
 
-    internal IReadOnlyList<BrokerEnvelope> GetPendingEnvelopesForTesting() => [.. pendingEnvelopes];
+    internal IReadOnlyList<BrokerEnvelope> GetPendingEnvelopesForTesting()
+    {
+        lock (gate)
+        {
+            return [.. pendingEnvelopes];
+        }
+    }
 
+    readonly Lock gate = new();
     List<BrokerEnvelope> pendingEnvelopes = [];
     int completed;
 }
