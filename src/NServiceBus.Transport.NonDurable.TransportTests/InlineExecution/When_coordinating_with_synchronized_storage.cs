@@ -15,10 +15,10 @@ using NServiceBus.Transport;
 using NUnit.Framework;
 
 // Exercises the cross-repo transaction coordination seam at the unit level:
-// the transport publishes a CommittableTransaction (as Transaction) into the
+// the transport publishes a CommittableTransaction under a dedicated key in the
 // TransportTransaction bag and enlists a volatile pending-envelope RM. A fake
 // ICompletableSynchronizedStorageSession mirrors the NonDurable persistence
-// contract (TryGet(out Transaction) + EnlistVolatile) so we can prove saga
+// contract (keyed TryGet + EnlistVolatile) so we can prove saga
 // mutations and enlisted sends share one commit/rollback decision.
 [TestFixture]
 public class When_coordinating_with_synchronized_storage
@@ -75,19 +75,18 @@ public class When_coordinating_with_synchronized_storage
     }
 
     [Test]
-    public void CommittableTransaction_should_be_published_under_Transaction_base_type()
+    public void CommittableTransaction_should_be_published_under_dedicated_key()
     {
-        // BLOCKER 1 regression guard: type-inferred Set would key on
-        // CommittableTransaction and the persistence adapter would never find it.
         var transportTransaction = new TransportTransaction();
         var committable = new CommittableTransaction();
 
-        transportTransaction.Set<Transaction>(committable);
+        transportTransaction.Set(NonDurableTransactionKeys.Transaction, committable);
 
         using (Assert.EnterMultipleScope())
         {
-            Assert.That(transportTransaction.TryGet(out Transaction? published), Is.True);
+            Assert.That(transportTransaction.TryGet(NonDurableTransactionKeys.Transaction, out Transaction? published), Is.True);
             Assert.That(published, Is.SameAs(committable));
+            Assert.That(transportTransaction.TryGet(out Transaction? _), Is.False);
         }
 
         committable.Dispose();
@@ -115,7 +114,7 @@ public class When_coordinating_with_synchronized_storage
 
         await runner.Process(ReceivedEnvelope());
 
-        Assert.That(captured!.TryGet(out Transaction? _), Is.False);
+        Assert.That(captured!.TryGet(NonDurableTransactionKeys.Transaction, out Transaction? _), Is.False);
     }
 
     static BrokerEnvelope ReceivedEnvelope() =>
@@ -176,7 +175,7 @@ public class When_coordinating_with_synchronized_storage
     }
 
     // Mirrors the NonDurable persistence SynchronizedStorageSession contract:
-    // TryOpen(TransportTransaction) looks up the Transaction base type from the
+    // TryOpen(TransportTransaction) looks up the dedicated transaction key from the
     // bag and enlists volatile. A "mutation" is applied at Prepare time and
     // rolled back on Rollback, exactly like the persistence EnlistmentNotification.
     sealed class FakeStorageSession : ICompletableSynchronizedStorageSession
@@ -188,7 +187,7 @@ public class When_coordinating_with_synchronized_storage
 
         public ValueTask<bool> TryOpen(TransportTransaction transportTransaction, ContextBag context, CancellationToken cancellationToken = default)
         {
-            if (transportTransaction.TryGet(out Transaction? tx) && tx is not null)
+            if (transportTransaction.TryGet(NonDurableTransactionKeys.Transaction, out Transaction? tx) && tx is not null)
             {
                 tx.EnlistVolatile(new MutationEnlistment(this), EnlistmentOptions.None);
                 return new ValueTask<bool>(true);

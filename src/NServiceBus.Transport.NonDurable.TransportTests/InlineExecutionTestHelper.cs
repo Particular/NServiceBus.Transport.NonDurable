@@ -76,8 +76,7 @@ static class InlineExecutionTestHelper
 
     public static void AttachReceiveTransaction(TransportTransaction transaction, (CommittableTransaction Committable, PendingEnvelopeEnlistment Enlistment) receiveTransaction)
     {
-        // Key under the Transaction base type, matching InlineExecutionRunner.
-        transaction.Set<Transaction>(receiveTransaction.Committable);
+        transaction.Set(NonDurableTransactionKeys.Transaction, receiveTransaction.Committable);
         transaction.Set(receiveTransaction.Enlistment);
     }
 

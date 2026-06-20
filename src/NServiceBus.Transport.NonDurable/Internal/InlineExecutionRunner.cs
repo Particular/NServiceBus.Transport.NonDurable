@@ -40,7 +40,7 @@ sealed class InlineExecutionRunner(
         if (transactionMode == TransportTransactionMode.SendsAtomicWithReceive)
         {
             committable = new CommittableTransaction();
-            transportTransaction.Set<Transaction>(committable);
+            transportTransaction.Set(NonDurableTransactionKeys.Transaction, committable);
             enlistment = new PendingEnvelopeEnlistment();
             committable.EnlistVolatile(enlistment, EnlistmentOptions.None);
             transportTransaction.Set(enlistment);
@@ -106,7 +106,7 @@ sealed class InlineExecutionRunner(
             if (committable != null)
             {
                 errorCommittable = new CommittableTransaction();
-                transportTransaction.Set<Transaction>(errorCommittable);
+                transportTransaction.Set(NonDurableTransactionKeys.Transaction, errorCommittable);
                 enlistment = new PendingEnvelopeEnlistment();
                 errorCommittable.EnlistVolatile(enlistment, EnlistmentOptions.None);
                 transportTransaction.Set(enlistment);
