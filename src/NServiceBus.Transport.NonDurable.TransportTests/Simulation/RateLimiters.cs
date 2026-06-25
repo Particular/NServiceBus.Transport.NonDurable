@@ -158,7 +158,11 @@ sealed class BlockingGrantRateLimiter : RateLimiter
     protected override async ValueTask<RateLimitLease> AcquireAsyncCore(int permitCount, CancellationToken cancellationToken = default)
     {
         _ = acquired.TrySetResult();
-        await using var registration = cancellationToken.Register(() => pending.TrySetCanceled(cancellationToken));
+        await using var registration = cancellationToken.UnsafeRegister(static state =>
+        {
+            var (pending, cancellationToken) = ((TaskCompletionSource<RateLimitLease> Pending, CancellationToken CancellationToken))state!;
+            pending.TrySetCanceled(cancellationToken);
+        }, (pending, cancellationToken));
         return await pending.Task.ConfigureAwait(false);
     }
 

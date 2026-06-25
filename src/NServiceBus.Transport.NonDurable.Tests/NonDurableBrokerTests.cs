@@ -580,7 +580,7 @@ public class NonDurableBrokerTests
         }
 
         var completionSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        cancellationToken.Register(static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true), completionSource);
+        cancellationToken.UnsafeRegister(static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true), completionSource);
         return completionSource.Task;
     }
 

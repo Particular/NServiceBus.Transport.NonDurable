@@ -170,7 +170,7 @@ class NonDurableMessagePump(
         stopRequested.TrySetResult();
         Cancel(receiveAttemptCts);
 
-        using var cancellationRegistration = cancellationToken.Register(static state => ((NonDurableMessagePump)state!).TriggerHardStop(), this);
+        using var cancellationRegistration = cancellationToken.UnsafeRegister(static state => ((NonDurableMessagePump)state!).TriggerHardStop(), this);
         if (cancellationToken.IsCancellationRequested)
         {
             TriggerHardStop();
