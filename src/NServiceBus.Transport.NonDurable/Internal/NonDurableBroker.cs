@@ -156,6 +156,11 @@ public sealed class NonDurableBroker : IAsyncDisposable
                 {
                     await ApplySimulationAsync(NonDurableSimulationOperation.DelayedDelivery, envelopeToDispatch.Destination, cancellationToken).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    envelopeToDispatch.Dispose();
+                    break;
+                }
                 catch (NonDurableSimulationException ex)
                 {
                     EnqueueDelayed(envelopeToDispatch, ex.TimeProvider.GetUtcNow() + ex.RetryAfter);
@@ -449,8 +454,17 @@ public sealed class NonDurableBroker : IAsyncDisposable
         SignalDelayedMessagesChanged();
         if (delayedPumpTask != null)
         {
-            await delayedPumpTask.ConfigureAwait(false);
+            try
+            {
+                await delayedPumpTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (delayedPumpCancelSource.IsCancellationRequested)
+            {
+                // Intentionally ignored: broker disposal cancels the delayed pump as part of normal cleanup.
+            }
         }
+
+        DisposeDelayedMessages();
 
         // Completing queues lets receivers drain any buffered envelopes and then exit cleanly.
         foreach (var queue in queues.Values)
@@ -465,6 +479,17 @@ public sealed class NonDurableBroker : IAsyncDisposable
 
         customLimiters.Clear();
         delayedPumpCancelSource.Dispose();
+    }
+
+    void DisposeDelayedMessages()
+    {
+        lock (delayedMessagesLock)
+        {
+            while (delayedMessages.Count > 0)
+            {
+                delayedMessages.Dequeue().Dispose();
+            }
+        }
     }
 
     readonly ConcurrentDictionary<string, NonDurableChannel> queues = new();

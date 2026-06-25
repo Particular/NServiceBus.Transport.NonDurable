@@ -77,6 +77,10 @@ sealed class InlineExecutionScope(Guid rootExecutionId)
                 {
                     completion.TrySetCanceled(exception.CancellationToken);
                 }
+                else
+                {
+                    completion.TrySetException(terminalException!);
+                }
             }
         }
     }
