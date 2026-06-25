@@ -23,11 +23,11 @@ class NonDurableDispatcher(
         return CombineTasks(unicastTask, multicastTask, cancellationToken);
     }
 
-    Task DispatchMulticast(IEnumerable<MulticastTransportOperation> transportOperations, TransportTransaction transaction, CancellationToken cancellationToken)
+    Task DispatchMulticast(List<MulticastTransportOperation> operations, TransportTransaction transaction, CancellationToken cancellationToken)
     {
-        List<Task> tasks = [];
+        var tasks = new List<Task>(operations.Count);
 
-        foreach (var transportOperation in transportOperations)
+        foreach (var transportOperation in operations)
         {
             tasks.Add(DispatchMulticastOperation(transportOperation, transaction, cancellationToken));
         }
@@ -44,12 +44,7 @@ class NonDurableDispatcher(
             return task2;
         }
 
-        if (task2 == Task.CompletedTask)
-        {
-            return task1;
-        }
-
-        return Task.WhenAll(task1, task2);
+        return task2 == Task.CompletedTask ? task1 : Task.WhenAll(task1, task2);
     }
 
     HashSet<string> GetSubscribersForType(Type messageType)
@@ -90,9 +85,9 @@ class NonDurableDispatcher(
     static bool IsCoreMarkerInterface(Type type) =>
         type == typeof(IMessage) || type == typeof(IEvent) || type == typeof(ICommand);
 
-    Task DispatchUnicast(IEnumerable<UnicastTransportOperation> operations, TransportTransaction transaction, CancellationToken cancellationToken)
+    Task DispatchUnicast(List<UnicastTransportOperation> operations, TransportTransaction transaction, CancellationToken cancellationToken)
     {
-        List<Task> tasks = [];
+        var tasks = new List<Task>(operations.Count);
 
         foreach (var operation in operations)
         {
