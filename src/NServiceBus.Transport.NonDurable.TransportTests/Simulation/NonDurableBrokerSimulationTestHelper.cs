@@ -57,10 +57,10 @@ sealed class CountingRateLimiter(int permitCount) : RateLimiter
         if (remainingPermits > 0)
         {
             remainingPermits--;
-            return SuccessfulLease.Instance;
+            return FixedRateLimitLease.Granted;
         }
 
-        return FailedLease.Instance;
+        return FixedRateLimitLease.Rejected;
     }
 
     protected override ValueTask<RateLimitLease> AcquireAsyncCore(int permitCount, CancellationToken cancellationToken = default)
@@ -69,10 +69,10 @@ sealed class CountingRateLimiter(int permitCount) : RateLimiter
         if (remainingPermits > 0)
         {
             remainingPermits--;
-            return ValueTask.FromResult<RateLimitLease>(SuccessfulLease.Instance);
+            return ValueTask.FromResult<RateLimitLease>(FixedRateLimitLease.Granted);
         }
 
-        return ValueTask.FromResult<RateLimitLease>(FailedLease.Instance);
+        return ValueTask.FromResult<RateLimitLease>(FixedRateLimitLease.Rejected);
     }
 
     public override TimeSpan? IdleDuration => null;
@@ -81,36 +81,6 @@ sealed class CountingRateLimiter(int permitCount) : RateLimiter
 
     protected override void Dispose(bool disposing)
     {
-    }
-
-    sealed class SuccessfulLease : RateLimitLease
-    {
-        public static SuccessfulLease Instance { get; } = new();
-
-        public override bool IsAcquired => true;
-
-        public override IEnumerable<string> MetadataNames => [];
-
-        public override bool TryGetMetadata(string metadataName, out object metadata)
-        {
-            metadata = null;
-            return false;
-        }
-    }
-
-    sealed class FailedLease : RateLimitLease
-    {
-        public static FailedLease Instance { get; } = new();
-
-        public override bool IsAcquired => false;
-
-        public override IEnumerable<string> MetadataNames => [];
-
-        public override bool TryGetMetadata(string metadataName, out object metadata)
-        {
-            metadata = null;
-            return false;
-        }
     }
 }
 
@@ -146,39 +116,105 @@ readonly record struct ScriptedRateLimiterStep(bool IsAcquired, TimeSpan? RetryA
 
     public static ScriptedRateLimiterStep Rejected(TimeSpan retryAfter) => new(false, retryAfter);
 
-    public RateLimitLease ToLease() => IsAcquired ? SuccessfulScriptedLease.Instance : new RejectedScriptedLease(RetryAfter!.Value);
+    public RateLimitLease ToLease() => IsAcquired
+        ? FixedRateLimitLease.Granted
+        : FixedRateLimitLease.RejectedWithRetryAfter(RetryAfter!.Value);
 }
 
-sealed class SuccessfulScriptedLease : RateLimitLease
+// A RateLimitLease with a fixed acquisition result and optional RetryAfter metadata. Collapses the
+// per-limiter granted/rejected lease duplicates into shared singletons (Granted/Rejected) plus a
+// retry-after variant (RejectedWithRetryAfter) for rejections that carry RetryAfter metadata.
+sealed class FixedRateLimitLease : RateLimitLease
 {
-    public static SuccessfulScriptedLease Instance { get; } = new();
+    public static FixedRateLimitLease Granted { get; } = new(true);
 
-    public override bool IsAcquired => true;
+    public static FixedRateLimitLease Rejected { get; } = new(false);
 
-    public override IEnumerable<string> MetadataNames => [];
+    readonly bool isAcquired;
+    readonly TimeSpan? retryAfter;
 
-    public override bool TryGetMetadata(string metadataName, out object metadata)
+    FixedRateLimitLease(bool isAcquired, TimeSpan? retryAfter = null)
     {
-        metadata = null;
-        return false;
+        this.isAcquired = isAcquired;
+        this.retryAfter = retryAfter;
     }
-}
 
-sealed class RejectedScriptedLease(TimeSpan retryAfter) : RateLimitLease
-{
-    public override bool IsAcquired => false;
+    public static FixedRateLimitLease RejectedWithRetryAfter(TimeSpan retryAfter) => new(false, retryAfter);
 
-    public override IEnumerable<string> MetadataNames => [MetadataName.RetryAfter.Name];
+    public override bool IsAcquired => isAcquired;
+
+    public override IEnumerable<string> MetadataNames => retryAfter.HasValue ? [MetadataName.RetryAfter.Name] : [];
 
     public override bool TryGetMetadata(string metadataName, out object metadata)
     {
-        if (metadataName == MetadataName.RetryAfter.Name)
+        if (retryAfter.HasValue && metadataName == MetadataName.RetryAfter.Name)
         {
-            metadata = retryAfter;
+            metadata = retryAfter.Value;
             return true;
         }
 
         metadata = null;
         return false;
+    }
+}
+
+// Rejects every attempt (with no RetryAfter metadata, so the broker treats it as
+// TimeSpan.Zero) until StartGranting() flips it to always grant. Used to assert that a
+// rejected queued message stays unprocessed and is only processed once permits appear.
+sealed class ManualGrantRateLimiter : RateLimiter
+{
+    int granting;
+    int attempts;
+
+    public int Attempts => Volatile.Read(ref attempts);
+
+    public void StartGranting() => Volatile.Write(ref granting, 1);
+
+    public override TimeSpan? IdleDuration => null;
+
+    public override RateLimiterStatistics GetStatistics() => null;
+
+    protected override RateLimitLease AttemptAcquireCore(int permitCount)
+    {
+        Interlocked.Increment(ref attempts);
+        return Volatile.Read(ref granting) == 1 ? FixedRateLimitLease.Granted : FixedRateLimitLease.Rejected;
+    }
+
+    protected override ValueTask<RateLimitLease> AcquireAsyncCore(int permitCount, CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(AttemptAcquireCore(permitCount));
+
+    protected override void Dispose(bool disposing)
+    {
+    }
+}
+
+// A send/receive simulation limiter whose AcquireAsync blocks until Grant() is called, then returns a
+// granted lease. Used to model a send delay deterministically: Acquired signals when the broker first
+// asks for a permit, and Grant() releases the delayed operation. Unlike the built-in window limiter, the
+// delay does not depend on a FakeTimeProvider timer fire, so it is fully observable and race-free.
+sealed class BlockingGrantRateLimiter : RateLimiter
+{
+    readonly TaskCompletionSource<RateLimitLease> pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    readonly TaskCompletionSource acquired = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Task Acquired => acquired.Task;
+
+    public void Grant() => pending.TrySetResult(FixedRateLimitLease.Granted);
+
+    public override TimeSpan? IdleDuration => null;
+
+    public override RateLimiterStatistics GetStatistics() => null;
+
+    protected override RateLimitLease AttemptAcquireCore(int permitCount) => FixedRateLimitLease.Rejected;
+
+    protected override async ValueTask<RateLimitLease> AcquireAsyncCore(int permitCount, CancellationToken cancellationToken = default)
+    {
+        acquired.TrySetResult();
+        using var registration = cancellationToken.Register(() => pending.TrySetCanceled(cancellationToken));
+        return await pending.Task.ConfigureAwait(false);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
     }
 }

@@ -1,7 +1,6 @@
 namespace NServiceBus.TransportTests.Simulation;
 
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.RateLimiting;
 using System.Threading.Tasks;
@@ -39,25 +38,10 @@ sealed class DisposableRateLimiter : RateLimiter
 
     public override RateLimiterStatistics GetStatistics() => null;
 
-    protected override RateLimitLease AttemptAcquireCore(int permitCount) => SuccessfulLease.Instance;
+    protected override RateLimitLease AttemptAcquireCore(int permitCount) => FixedRateLimitLease.Granted;
 
     protected override ValueTask<RateLimitLease> AcquireAsyncCore(int permitCount, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult<RateLimitLease>(SuccessfulLease.Instance);
+        ValueTask.FromResult<RateLimitLease>(FixedRateLimitLease.Granted);
 
     protected override void Dispose(bool disposing) => Disposed = true;
-
-    sealed class SuccessfulLease : RateLimitLease
-    {
-        public static SuccessfulLease Instance { get; } = new();
-
-        public override bool IsAcquired => true;
-
-        public override IEnumerable<string> MetadataNames => [];
-
-        public override bool TryGetMetadata(string metadataName, out object metadata)
-        {
-            metadata = null;
-            return false;
-        }
-    }
 }
