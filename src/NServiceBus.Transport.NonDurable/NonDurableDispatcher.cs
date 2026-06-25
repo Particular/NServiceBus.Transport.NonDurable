@@ -406,10 +406,6 @@ class NonDurableDispatcher(
         {
             return false;
         }
-        if (transaction.TryGet<PendingEnvelopeEnlistment>(out var enlistment) && enlistment != null && enlistment.Add(envelope))
-        {
-            return true;
-        }
-        return false;
+        return transaction.TryGet<PendingEnvelopeEnlistment>(out var enlistment) && enlistment.Add(envelope);
     }
 }
