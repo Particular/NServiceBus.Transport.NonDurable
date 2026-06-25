@@ -11,7 +11,7 @@ static class AsyncSpinWait
         for (var i = 0; i < maxIterations && !condition(); i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await Task.Yield();
+            await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
         }
     }
 }

@@ -132,7 +132,7 @@ class NonDurableMessagePump(
                 else
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    await Task.Yield();
+                    await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
                 }
             }
 #pragma warning disable PS0020 // This pump intentionally distinguishes hard-stop cancellation from graceful receive-stop cancellation.
