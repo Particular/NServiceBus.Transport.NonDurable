@@ -5,9 +5,9 @@
     <File Path="Custom.Build.props" />
   </Folder>
   <Folder Name="/Tests/">
-    <Project Path="NServiceBus.Transport.NonDurable.AcceptanceTests\NServiceBus.Transport.NonDurable.AcceptanceTests.csproj" />
-    <Project Path="NServiceBus.Transport.NonDurable.Tests\NServiceBus.Transport.NonDurable.Tests.csproj" />
-    <Project Path="NServiceBus.Transport.NonDurable.TransportTests\NServiceBus.Transport.NonDurable.TransportTests.csproj" />
+    <Project Path="NServiceBus.Transport.NonDurable.AcceptanceTests/NServiceBus.Transport.NonDurable.AcceptanceTests.csproj" />
+    <Project Path="NServiceBus.Transport.NonDurable.Tests/NServiceBus.Transport.NonDurable.Tests.csproj" />
+    <Project Path="NServiceBus.Transport.NonDurable.TransportTests/NServiceBus.Transport.NonDurable.TransportTests.csproj" />
   </Folder>
-  <Project Path="NServiceBus.Transport.NonDurable\NServiceBus.Transport.NonDurable.csproj" />
+  <Project Path="NServiceBus.Transport.NonDurable/NServiceBus.Transport.NonDurable.csproj" />
 </Solution>

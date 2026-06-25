@@ -1,8 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/NServiceBus.NonDurable.AcceptanceTests/NServiceBus.NonDurable.AcceptanceTests.csproj" />
-    <Project Path="src/NServiceBus.NonDurable.Tests/NServiceBus.NonDurable.Tests.csproj" />
-    <Project Path="src/NServiceBus.NonDurable.TransportTests/NServiceBus.NonDurable.TransportTests.csproj" />
-    <Project Path="src/NServiceBus.NonDurable/NServiceBus.NonDurable.csproj" />
-  </Folder>
-</Solution>
