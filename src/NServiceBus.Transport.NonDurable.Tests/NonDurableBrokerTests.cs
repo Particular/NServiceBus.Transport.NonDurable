@@ -21,7 +21,7 @@ public class NonDurableBrokerTests
 
         var envelope = BrokerPayloadStore.Borrow(
             "msg-1",
-            new byte[] { 1, 2, 3 },
+            [1, 2, 3],
             new Dictionary<string, string>(),
             "test-queue",
             isPublished: false,
@@ -46,7 +46,7 @@ public class NonDurableBrokerTests
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
 
-        Assert.ThrowsAsync<OperationCanceledException>(async () =>
+        _ = Assert.ThrowsAsync<OperationCanceledException>(async () =>
             await queue.Dequeue(cts.Token));
 
         await broker.DisposeAsync();
@@ -61,9 +61,9 @@ public class NonDurableBrokerTests
         Assert.That(queue.Count, Is.EqualTo(0));
 
         var envelope1 = BrokerPayloadStore.Borrow(
-            "msg-1", new byte[] { 1 }, new Dictionary<string, string>(), "test-queue", false, 1);
+            "msg-1", [1], new Dictionary<string, string>(), "test-queue", false, 1);
         var envelope2 = BrokerPayloadStore.Borrow(
-            "msg-2", new byte[] { 2 }, new Dictionary<string, string>(), "test-queue", false, 2);
+            "msg-2", [2], new Dictionary<string, string>(), "test-queue", false, 2);
 
         await queue.Enqueue(envelope1, CancellationToken.None);
         Assert.That(queue.Count, Is.EqualTo(1));
@@ -199,7 +199,7 @@ public class NonDurableBrokerTests
 
         var envelope = BrokerPayloadStore.Borrow(
             "msg-1",
-            new byte[] { 1, 2, 3 },
+            [1, 2, 3],
             new Dictionary<string, string>(),
             "test-queue",
             isPublished: false,
@@ -229,14 +229,14 @@ public class NonDurableBrokerTests
 
         var laterEnvelope = BrokerPayloadStore.Borrow(
             "later",
-            new byte[] { 1 },
+            [1],
             new Dictionary<string, string>(),
             "q",
             isPublished: false,
             sequenceNumber: 1);
         var earlierEnvelope = BrokerPayloadStore.Borrow(
             "earlier",
-            new byte[] { 2 },
+            [2],
             new Dictionary<string, string>(),
             "q",
             isPublished: false,
@@ -280,7 +280,7 @@ public class NonDurableBrokerTests
 
         var envelope = BrokerPayloadStore.Borrow(
             "msg-1",
-            new byte[] { 1 },
+            [1],
             new Dictionary<string, string>(),
             "test-queue",
             isPublished: false,
@@ -304,7 +304,7 @@ public class NonDurableBrokerTests
 
         var envelope = BrokerPayloadStore.Borrow(
             "msg-1",
-            new byte[] { 1 },
+            [1],
             new Dictionary<string, string>(),
             "test-queue",
             isPublished: false,
@@ -326,9 +326,9 @@ public class NonDurableBrokerTests
         var broker = new NonDurableBroker();
 
         var envelope1 = BrokerPayloadStore.Borrow(
-            "msg-1", new byte[] { 1 }, new Dictionary<string, string>(), "q", false, 1);
+            "msg-1", [1], new Dictionary<string, string>(), "q", false, 1);
         var envelope2 = BrokerPayloadStore.Borrow(
-            "msg-2", new byte[] { 2 }, new Dictionary<string, string>(), "q", false, 2);
+            "msg-2", [2], new Dictionary<string, string>(), "q", false, 2);
 
         var time1 = DateTimeOffset.UtcNow.AddMinutes(-2);
         var time2 = DateTimeOffset.UtcNow.AddMinutes(-1);
@@ -353,11 +353,11 @@ public class NonDurableBrokerTests
         var dueTime = DateTimeOffset.UtcNow.AddMinutes(-1);
 
         var envelope1 = BrokerPayloadStore.Borrow(
-            "msg-1", new byte[] { 1 }, new Dictionary<string, string>(), "q", false, 1);
+            "msg-1", [1], new Dictionary<string, string>(), "q", false, 1);
         var envelope2 = BrokerPayloadStore.Borrow(
-            "msg-2", new byte[] { 2 }, new Dictionary<string, string>(), "q", false, 2);
+            "msg-2", [2], new Dictionary<string, string>(), "q", false, 2);
         var envelope3 = BrokerPayloadStore.Borrow(
-            "msg-3", new byte[] { 3 }, new Dictionary<string, string>(), "q", false, 3);
+            "msg-3", [3], new Dictionary<string, string>(), "q", false, 3);
 
         broker.EnqueueDelayed(envelope1, dueTime);
         broker.EnqueueDelayed(envelope2, dueTime);
@@ -381,7 +381,7 @@ public class NonDurableBrokerTests
         var broker = new NonDurableBroker();
         var envelope = BrokerPayloadStore.Borrow(
             "msg-1",
-            new byte[] { 1 },
+            [1],
             new Dictionary<string, string>(),
             "q",
             isPublished: false,
@@ -425,7 +425,7 @@ public class NonDurableBrokerTests
 
         var envelope = NewEnvelopeWith(pool,
             "msg-1",
-            new byte[] { 1 },
+            [1],
             "q",
             isPublished: false,
             sequenceNumber: 1);
@@ -446,7 +446,7 @@ public class NonDurableBrokerTests
 
         var envelope = NewEnvelopeWith(pool,
             "msg-1",
-            new byte[] { 1 },
+            [1],
             "q",
             isPublished: false,
             sequenceNumber: 1);
@@ -463,7 +463,7 @@ public class NonDurableBrokerTests
     {
         var envelope = BrokerPayloadStore.Borrow(
             "msg-1",
-            new byte[] { 1 },
+            [1],
             new Dictionary<string, string> { ["key"] = "original" },
             "test-queue",
             isPublished: false,
@@ -484,7 +484,7 @@ public class NonDurableBrokerTests
         var broker = new NonDurableBroker();
         var envelope = BrokerPayloadStore.Borrow(
             "msg-1",
-            new byte[] { 1 },
+            [1],
             new Dictionary<string, string> { ["key"] = "original" },
             "test-queue",
             isPublished: false,

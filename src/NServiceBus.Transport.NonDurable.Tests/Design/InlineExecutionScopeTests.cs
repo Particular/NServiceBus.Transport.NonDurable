@@ -73,7 +73,7 @@ public class InlineExecutionScopeTests
 
         using (Assert.EnterMultipleScope())
         {
-            Assert.That(scope.PendingOperations, Is.EqualTo(0));
+            Assert.That(scope.PendingOperations, Is.Zero);
             Assert.That(scope.Completion.IsCompletedSuccessfully, Is.True);
         }
     }
@@ -200,7 +200,7 @@ public class InlineExecutionScopeTests
     {
         var scope = new InlineExecutionScope(Guid.NewGuid());
 
-        var exception = Assert.Throws<InvalidOperationException>(() => scope.CompleteDispatchSuccess());
+        var exception = Assert.Throws<InvalidOperationException>(scope.CompleteDispatchSuccess);
 
         Assert.That(exception!.Message, Does.Contain("pending"));
     }
