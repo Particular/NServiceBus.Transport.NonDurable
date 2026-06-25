@@ -6,7 +6,9 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Transactions;
+using DelayedDelivery;
 using Extensibility;
+using Performance.TimeToBeReceived;
 using Routing;
 using Transport;
 
@@ -251,7 +253,7 @@ sealed class InlineExecutionRunner(
             operations[i] = new TransportOperation(
                 new OutgoingMessage(pending.MessageId, new Dictionary<string, string>(pending.Headers), pending.Body),
                 new UnicastAddressTag(pending.Destination),
-                [],
+                CreateDispatchProperties(pending),
                 DispatchConsistency.Default);
         }
 
@@ -266,6 +268,24 @@ sealed class InlineExecutionRunner(
                 envelope.Dispose();
             }
         }
+    }
+
+    DispatchProperties CreateDispatchProperties(BrokerEnvelope pending)
+    {
+        var properties = new DispatchProperties();
+
+        if (pending.DeliverAt.HasValue)
+        {
+            properties.DoNotDeliverBefore = new DoNotDeliverBefore(pending.DeliverAt.Value);
+        }
+
+        if (pending.DiscardAfter.HasValue)
+        {
+            var remaining = pending.DiscardAfter.Value - broker.GetCurrentTime();
+            properties.DiscardIfNotReceivedBefore = new DiscardIfNotReceivedBefore(remaining <= TimeSpan.Zero ? TimeSpan.Zero : remaining);
+        }
+
+        return properties;
     }
 
     static bool IsDeferredRetry(TransportTransaction transportTransaction) =>

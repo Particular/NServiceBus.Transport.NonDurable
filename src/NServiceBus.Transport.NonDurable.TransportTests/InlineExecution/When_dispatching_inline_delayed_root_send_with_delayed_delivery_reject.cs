@@ -57,18 +57,20 @@ public class When_dispatching_inline_delayed_root_send_with_delayed_delivery_rej
         // The pump dequeues immediately (zero delay), the DelayedDelivery simulation rejects, and the
         // envelope is re-enqueued for now + RetryAfter. The pump's retry timer is driven by the fake time
         // provider, so advance simulated time past RetryAfter until delivery lands and the handler starts.
-        while (!handlerStarted.Task.IsCompleted)
+        for (var attempt = 0; attempt < 10 && !handlerStarted.Task.IsCompleted; attempt++)
         {
             fakeTime.Advance(TimeSpan.FromSeconds(30));
             try
             {
                 await handlerStarted.Task.WaitAsync(TimeSpan.FromMilliseconds(250));
             }
-            catch (TimeoutException)
+            catch (TimeoutException timeout) when (!handlerStarted.Task.IsCompleted)
             {
-                // The retry-wait timer had not registered/fired before this advance; advance again.
+                Assert.That(timeout, Is.Not.Null);
             }
         }
+
+        Assert.That(handlerStarted.Task.IsCompleted, Is.True);
 
         Assert.That(rootTask.IsCompleted, Is.False);
 

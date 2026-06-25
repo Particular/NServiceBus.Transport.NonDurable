@@ -69,6 +69,11 @@ public class When_dispatching_inline_root_with_staged_send_flush_under_send_simu
 
         fakeTime.Advance(TimeSpan.FromSeconds(30));
 
+        await AsyncSpinWait.Until(() => childStarted.Task.IsCompleted, maxIterations: 100);
+        Assert.That(childStarted.Task.IsCompleted, Is.False);
+
+        fakeTime.Advance(TimeSpan.FromSeconds(30));
+
         await childStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.That(parentRoot.IsCompleted, Is.False);
 
