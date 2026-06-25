@@ -21,7 +21,7 @@ class ConfigureNonDurableTransportInfrastructure : IConfigureTransportInfrastruc
             hostSettings,
             [mainReceiverSettings],
             [errorQueueName],
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken);
 
         return transportInfrastructure;
     }

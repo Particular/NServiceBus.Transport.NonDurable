@@ -173,7 +173,7 @@ public class When_coordinating_with_synchronized_storage
         Exception? thrown = null;
         try
         {
-            await runner.Process(ReceivedEnvelope()).ConfigureAwait(false);
+            await runner.Process(ReceivedEnvelope());
         }
         catch (Exception ex)
         {

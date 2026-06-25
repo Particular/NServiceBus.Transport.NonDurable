@@ -27,9 +27,9 @@ public class NonDurableBrokerTests
             isPublished: false,
             sequenceNumber: 1);
 
-        await queue.Enqueue(envelope, CancellationToken.None).ConfigureAwait(false);
+        await queue.Enqueue(envelope, CancellationToken.None);
 
-        var dequeued = await queue.Dequeue(CancellationToken.None).ConfigureAwait(false);
+        var dequeued = await queue.Dequeue(CancellationToken.None);
 
         Assert.That(dequeued.MessageId, Is.EqualTo("msg-1"));
         Assert.That(dequeued.Body.ToArray(), Is.EqualTo(new byte[] { 1, 2, 3 }));
@@ -65,13 +65,13 @@ public class NonDurableBrokerTests
         var envelope2 = BrokerPayloadStore.Borrow(
             "msg-2", new byte[] { 2 }, new Dictionary<string, string>(), "test-queue", false, 2);
 
-        await queue.Enqueue(envelope1, CancellationToken.None).ConfigureAwait(false);
+        await queue.Enqueue(envelope1, CancellationToken.None);
         Assert.That(queue.Count, Is.EqualTo(1));
 
-        await queue.Enqueue(envelope2, CancellationToken.None).ConfigureAwait(false);
+        await queue.Enqueue(envelope2, CancellationToken.None);
         Assert.That(queue.Count, Is.EqualTo(2));
 
-        await queue.Dequeue(CancellationToken.None).ConfigureAwait(false);
+        await queue.Dequeue(CancellationToken.None);
         Assert.That(queue.Count, Is.EqualTo(1));
 
         envelope1.Dispose();
@@ -208,14 +208,14 @@ public class NonDurableBrokerTests
         var deliverAt = DateTimeOffset.UtcNow.AddMilliseconds(200);
         broker.EnqueueDelayed(envelope, deliverAt);
 
-        await broker.StartPump(cts.Token).ConfigureAwait(false);
+        await broker.StartPump(cts.Token);
 
-        await Task.Delay(300).ConfigureAwait(false);
+        await Task.Delay(300);
 
         var queue = broker.GetOrCreateQueue("test-queue");
         Assert.That(queue.Count, Is.EqualTo(1));
 
-        var dequeued = await queue.Dequeue(CancellationToken.None).ConfigureAwait(false);
+        var dequeued = await queue.Dequeue(CancellationToken.None);
         Assert.That(dequeued.MessageId, Is.EqualTo("msg-1"));
 
         envelope.Dispose();
@@ -243,16 +243,16 @@ public class NonDurableBrokerTests
             sequenceNumber: 2);
 
         broker.EnqueueDelayed(laterEnvelope, DateTimeOffset.UtcNow.AddSeconds(2));
-        await broker.StartPump(CancellationToken.None).ConfigureAwait(false);
+        await broker.StartPump(CancellationToken.None);
 
-        await AllowBackgroundPumpToStart(CancellationToken.None).ConfigureAwait(false);
+        await AllowBackgroundPumpToStart(CancellationToken.None);
 
         broker.EnqueueDelayed(earlierEnvelope, DateTimeOffset.UtcNow);
 
         var queue = broker.GetOrCreateQueue("q");
         using var dequeueCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
 
-        var dequeued = await queue.Dequeue(dequeueCts.Token).ConfigureAwait(false);
+        var dequeued = await queue.Dequeue(dequeueCts.Token);
 
         Assert.That(dequeued.MessageId, Is.EqualTo("earlier"));
 
@@ -268,8 +268,8 @@ public class NonDurableBrokerTests
 
         Assert.DoesNotThrowAsync(async () =>
         {
-            await broker.StartPump(cts.Token).ConfigureAwait(false);
-            await broker.StartPump(cts.Token).ConfigureAwait(false);
+            await broker.StartPump(cts.Token);
+            await broker.StartPump(cts.Token);
         });
     }
 
@@ -391,19 +391,19 @@ public class NonDurableBrokerTests
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(60));
 
-        await broker.StartPump(cts.Token).ConfigureAwait(false);
+        await broker.StartPump(cts.Token);
 
-        var cancellationObserved = await WaitForCancellation(cts.Token).WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+        var cancellationObserved = await WaitForCancellation(cts.Token).WaitAsync(TimeSpan.FromSeconds(1));
         Assert.That(cancellationObserved, Is.True);
 
         Assert.That(broker.TryGetQueue("q", out var queue), Is.True);
         Assert.That(queue!.Count, Is.EqualTo(1));
 
-        var dequeued = await queue.Dequeue(CancellationToken.None).ConfigureAwait(false);
+        var dequeued = await queue.Dequeue(CancellationToken.None);
         Assert.That(dequeued.MessageId, Is.EqualTo("msg-1"));
 
         dequeued.Dispose();
-        await broker.DisposeAsync().ConfigureAwait(false);
+        await broker.DisposeAsync();
     }
 
     [Test]
@@ -431,10 +431,10 @@ public class NonDurableBrokerTests
             sequenceNumber: 1);
 
         broker.EnqueueDelayed(envelope, DateTimeOffset.UtcNow);
-        await broker.StartPump(CancellationToken.None).ConfigureAwait(false);
-        await AllowBackgroundPumpToStart(CancellationToken.None).ConfigureAwait(false);
+        await broker.StartPump(CancellationToken.None);
+        await AllowBackgroundPumpToStart(CancellationToken.None);
 
-        Assert.DoesNotThrowAsync(async () => await broker.DisposeAsync().ConfigureAwait(false));
+        Assert.DoesNotThrowAsync(async () => await broker.DisposeAsync());
         Assert.That(pool.Returned, Is.EqualTo(1));
     }
 
@@ -453,7 +453,7 @@ public class NonDurableBrokerTests
 
         broker.EnqueueDelayed(envelope, DateTimeOffset.UtcNow.AddHours(1));
 
-        await broker.DisposeAsync().ConfigureAwait(false);
+        await broker.DisposeAsync();
 
         Assert.That(pool.Returned, Is.EqualTo(1));
     }
@@ -518,12 +518,12 @@ public class NonDurableBrokerTests
             hostSettings,
             [new ReceiveSettings("main", new QueueAddress("input"), false, true, "error")],
             ["error"],
-            CancellationToken.None).ConfigureAwait(false);
+            CancellationToken.None);
 
         var message = new OutgoingMessage("id", [], new byte[] { 1 });
         var operation = new TransportOperation(message, new UnicastAddressTag("destination"));
 
-        await infrastructure.Dispatcher.Dispatch(new TransportOperations(operation), new TransportTransaction(), CancellationToken.None).ConfigureAwait(false);
+        await infrastructure.Dispatcher.Dispatch(new TransportOperations(operation), new TransportTransaction(), CancellationToken.None);
 
         using (Assert.EnterMultipleScope())
         {
@@ -550,12 +550,12 @@ public class NonDurableBrokerTests
             hostSettings,
             [new ReceiveSettings("main", new QueueAddress("input"), false, true, "error")],
             ["error"],
-            CancellationToken.None).ConfigureAwait(false);
+            CancellationToken.None);
 
         var message = new OutgoingMessage("id", [], new byte[] { 1 });
         var operation = new TransportOperation(message, new UnicastAddressTag("destination"));
 
-        await infrastructure.Dispatcher.Dispatch(new TransportOperations(operation), new TransportTransaction(), CancellationToken.None).ConfigureAwait(false);
+        await infrastructure.Dispatcher.Dispatch(new TransportOperations(operation), new TransportTransaction(), CancellationToken.None);
 
         Assert.That(constructorBroker.TryGetQueue("destination", out var queue), Is.True);
         Assert.That(queue!.Count, Is.EqualTo(1));
