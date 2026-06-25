@@ -25,16 +25,18 @@ sealed class InlineExecutionScope(Guid rootExecutionId)
         {
             DecrementPendingOperations("success");
 
-            if (PendingOperations == 0)
+            if (PendingOperations != 0)
             {
-                if (terminalException == null)
-                {
-                    completion.TrySetResult();
-                }
-                else
-                {
-                    completion.TrySetException(terminalException);
-                }
+                return;
+            }
+
+            if (terminalException == null)
+            {
+                completion.TrySetResult();
+            }
+            else
+            {
+                completion.TrySetException(terminalException);
             }
         }
     }
@@ -71,16 +73,18 @@ sealed class InlineExecutionScope(Guid rootExecutionId)
 
             DecrementPendingOperations("cancellation");
 
-            if (PendingOperations == 0)
+            if (PendingOperations != 0)
             {
-                if (isFirstException)
-                {
-                    completion.TrySetCanceled(exception.CancellationToken);
-                }
-                else
-                {
-                    completion.TrySetException(terminalException!);
-                }
+                return;
+            }
+
+            if (isFirstException)
+            {
+                completion.TrySetCanceled(exception.CancellationToken);
+            }
+            else
+            {
+                completion.TrySetException(terminalException!);
             }
         }
     }

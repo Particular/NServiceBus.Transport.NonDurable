@@ -7,12 +7,11 @@ using Transport;
 
 sealed class InlineExecutionRecoverabilityBehavior(InlineExecutionSettings settings) : IBehavior<IRecoverabilityContext, IRecoverabilityContext>
 {
-    public async Task Invoke(IRecoverabilityContext context, Func<IRecoverabilityContext, Task> next)
+    public Task Invoke(IRecoverabilityContext context, Func<IRecoverabilityContext, Task> next)
     {
         if (!context.Extensions.TryGet<TransportTransaction>(out var transportTransaction) || !transportTransaction.TryGet<InlineExecutionDispatchContext>(out _))
         {
-            await next(context).ConfigureAwait(false);
-            return;
+            return next(context);
         }
 
         var action = context.RecoverabilityAction;
@@ -20,14 +19,14 @@ sealed class InlineExecutionRecoverabilityBehavior(InlineExecutionSettings setti
         if (action is ImmediateRetry)
         {
             // Retry scheduled - scope stays pending
-            return;
+            return Task.CompletedTask;
         }
 
         if (action is DelayedRetry)
         {
             // Store action for dispatcher to preserve scope on delayed retry envelope
             transportTransaction.Set(action);
-            return;
+            return Task.CompletedTask;
         }
 
         if (action is MoveToError)
@@ -39,6 +38,6 @@ sealed class InlineExecutionRecoverabilityBehavior(InlineExecutionSettings setti
             }
         }
 
-        await next(context).ConfigureAwait(false);
+        return next(context);
     }
 }

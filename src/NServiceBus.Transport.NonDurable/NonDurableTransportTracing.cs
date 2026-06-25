@@ -100,7 +100,7 @@ static class NonDurableTransportTracing
 
     public static void PropagateContextToHeaders(Activity? activity, IDictionary<string, string> headers)
     {
-        if (activity?.Id is not string activityId)
+        if (activity?.Id is not { } activityId)
         {
             return;
         }
@@ -163,16 +163,13 @@ static class NonDurableTransportTracing
 
     static ActivityContext ResolveRemoteParentContext(IReadOnlyDictionary<string, string> headers)
     {
-        if (headers.TryGetValue(Headers.DiagnosticsTraceParent, out var traceParent))
+        if (!headers.TryGetValue(Headers.DiagnosticsTraceParent, out var traceParent))
         {
-            headers.TryGetValue(Headers.DiagnosticsTraceState, out var traceState);
-            if (ActivityContext.TryParse(traceParent, traceState, isRemote: true, out var parentContext))
-            {
-                return parentContext;
-            }
+            return default;
         }
 
-        return default;
+        headers.TryGetValue(Headers.DiagnosticsTraceState, out var traceState);
+        return ActivityContext.TryParse(traceParent, traceState, isRemote: true, out var parentContext) ? parentContext : default;
     }
 
     static void PropagateContextFromHeaders(Activity? activity, IReadOnlyDictionary<string, string> headers)
@@ -182,35 +179,37 @@ static class NonDurableTransportTracing
             return;
         }
 
-        if (headers.TryGetValue(Headers.DiagnosticsBaggage, out var baggageValue))
+        if (!headers.TryGetValue(Headers.DiagnosticsBaggage, out var baggageValue))
         {
-            var baggageSpan = baggageValue.AsSpan();
-            while (!baggageSpan.IsEmpty)
+            return;
+        }
+
+        var baggageSpan = baggageValue.AsSpan();
+        while (!baggageSpan.IsEmpty)
+        {
+            var lastComma = baggageSpan.LastIndexOf(',');
+            ReadOnlySpan<char> baggageItem;
+
+            if (lastComma >= 0)
             {
-                var lastComma = baggageSpan.LastIndexOf(',');
-                ReadOnlySpan<char> baggageItem;
-
-                if (lastComma >= 0)
-                {
-                    baggageItem = baggageSpan[(lastComma + 1)..];
-                    baggageSpan = baggageSpan[..lastComma];
-                }
-                else
-                {
-                    baggageItem = baggageSpan;
-                    baggageSpan = [];
-                }
-
-                var firstEquals = baggageItem.IndexOf('=');
-                if (firstEquals < 0 || firstEquals >= baggageItem.Length)
-                {
-                    continue;
-                }
-
-                var key = baggageItem[..firstEquals].Trim();
-                var value = baggageItem[(firstEquals + 1)..];
-                activity.AddBaggage(key.ToString(), Uri.UnescapeDataString(value));
+                baggageItem = baggageSpan[(lastComma + 1)..];
+                baggageSpan = baggageSpan[..lastComma];
             }
+            else
+            {
+                baggageItem = baggageSpan;
+                baggageSpan = [];
+            }
+
+            var firstEquals = baggageItem.IndexOf('=');
+            if (firstEquals < 0 || firstEquals >= baggageItem.Length)
+            {
+                continue;
+            }
+
+            var key = baggageItem[..firstEquals].Trim();
+            var value = baggageItem[(firstEquals + 1)..];
+            activity.AddBaggage(key.ToString(), Uri.UnescapeDataString(value));
         }
     }
 }

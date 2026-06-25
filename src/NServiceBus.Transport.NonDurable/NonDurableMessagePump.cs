@@ -238,10 +238,7 @@ class NonDurableMessagePump(
         }
     }
 
-    void RequeuePendingInlineScope(InlineExecutionScope scope)
-    {
-        TrackPendingInlineScope(scope);
-    }
+    void RequeuePendingInlineScope(InlineExecutionScope scope) => TrackPendingInlineScope(scope);
 
     void StopTrackingInlineScope(Guid rootExecutionId)
     {
