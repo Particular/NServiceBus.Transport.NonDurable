@@ -106,7 +106,7 @@ class NonDurableDispatcher(
     async Task DispatchMulticastOperation(MulticastTransportOperation transportOperation, TransportTransaction transaction, CancellationToken cancellationToken)
     {
         var message = transportOperation.Message;
-        var messageId = Guid.NewGuid().ToString();
+        var messageId = Guid.CreateVersion7().ToString();
         var sequenceNumber = broker.GetNextSequenceNumber();
 
         var subscribers = GetSubscribersForType(transportOperation.MessageType);
@@ -140,7 +140,7 @@ class NonDurableDispatcher(
     Task DispatchUnicastOperation(UnicastTransportOperation operation, TransportTransaction transaction, CancellationToken cancellationToken)
     {
         var message = operation.Message;
-        var messageId = Guid.NewGuid().ToString();
+        var messageId = Guid.CreateVersion7().ToString();
         var sequenceNumber = broker.GetNextSequenceNumber();
         var now = broker.GetCurrentTime();
         var deliverAt = GetDeliverAt(operation.Properties, now);
@@ -335,12 +335,7 @@ class NonDurableDispatcher(
             return !hasInlineScope;
         }
 
-        if (deliverAt.HasValue)
-        {
-            return false;
-        }
-
-        return hasInlineScope;
+        return !deliverAt.HasValue && hasInlineScope;
     }
 
     static bool TryGetInlineScope(TransportTransaction transaction, out InlineExecutionScope? scope) => transaction.TryGet(out scope);
