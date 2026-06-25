@@ -164,6 +164,22 @@ public class InlineExecutionScopeTests
     }
 
     [Test]
+    public void Cancellation_after_prior_failure_should_fault_with_the_prior_failure_when_last_operation_completes()
+    {
+        var scope = new InlineExecutionScope(Guid.NewGuid());
+        var failure = new InvalidOperationException("first");
+
+        scope.BeginDispatch();
+        scope.BeginDispatch();
+
+        scope.CompleteDispatchFailure(failure);
+        scope.CompleteDispatchCanceled(new OperationCanceledException("stop"));
+
+        var exception = Assert.ThrowsAsync<InvalidOperationException>(async () => await scope.Completion);
+        Assert.That(exception, Is.SameAs(failure));
+    }
+
+    [Test]
     public void Terminal_exception_should_be_nullable_until_a_failure_is_recorded()
     {
         var scope = new InlineExecutionScope(Guid.NewGuid());

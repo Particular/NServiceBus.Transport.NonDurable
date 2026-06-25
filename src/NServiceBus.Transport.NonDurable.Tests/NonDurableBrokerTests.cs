@@ -1,6 +1,7 @@
 namespace NServiceBus.Transport.NonDurable.Tests;
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -406,6 +407,58 @@ public class NonDurableBrokerTests
     }
 
     [Test]
+    public async Task Dispose_should_not_throw_when_delayed_pump_is_waiting_on_simulation_delay()
+    {
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            DelayedDelivery =
+            {
+                Mode = NonDurableSimulationMode.Delay,
+                RateLimit = new NonDurableRateLimitOptions
+                {
+                    PermitLimit = 0,
+                    Window = TimeSpan.FromSeconds(30)
+                }
+            }
+        });
+        var pool = new TrackingPool();
+
+        var envelope = NewEnvelopeWith(pool,
+            "msg-1",
+            new byte[] { 1 },
+            "q",
+            isPublished: false,
+            sequenceNumber: 1);
+
+        broker.EnqueueDelayed(envelope, DateTimeOffset.UtcNow);
+        await broker.StartPump(CancellationToken.None).ConfigureAwait(false);
+        await AllowBackgroundPumpToStart(CancellationToken.None).ConfigureAwait(false);
+
+        Assert.DoesNotThrowAsync(async () => await broker.DisposeAsync().ConfigureAwait(false));
+        Assert.That(pool.Returned, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task Dispose_should_return_buffers_for_remaining_delayed_messages()
+    {
+        var broker = new NonDurableBroker();
+        var pool = new TrackingPool();
+
+        var envelope = NewEnvelopeWith(pool,
+            "msg-1",
+            new byte[] { 1 },
+            "q",
+            isPublished: false,
+            sequenceNumber: 1);
+
+        broker.EnqueueDelayed(envelope, DateTimeOffset.UtcNow.AddHours(1));
+
+        await broker.DisposeAsync().ConfigureAwait(false);
+
+        Assert.That(pool.Returned, Is.EqualTo(1));
+    }
+
+    [Test]
     public void BrokerEnvelope_WithDeliveryAttempt_Should_isolate_headers()
     {
         var envelope = BrokerPayloadStore.Borrow(
@@ -529,5 +582,31 @@ public class NonDurableBrokerTests
         var completionSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         cancellationToken.Register(static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true), completionSource);
         return completionSource.Task;
+    }
+
+    static BrokerEnvelope NewEnvelopeWith(TrackingPool pool, string messageId, byte[] body, string destination, bool isPublished, long sequenceNumber)
+    {
+        var buffer = pool.Rent(body.Length);
+        body.CopyTo(buffer, 0);
+        return new BrokerEnvelope(
+            messageId,
+            new ReadOnlyMemory<byte>(buffer, 0, body.Length),
+            new Dictionary<string, string>(),
+            destination,
+            isPublished,
+            sequenceNumber)
+        {
+            Pool = pool,
+            Buffer = buffer
+        };
+    }
+
+    sealed class TrackingPool : ArrayPool<byte>
+    {
+        public int Returned { get; private set; }
+
+        public override byte[] Rent(int minimumLength) => new byte[minimumLength];
+
+        public override void Return(byte[] array, bool clearArray = false) => Returned++;
     }
 }
