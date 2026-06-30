@@ -51,7 +51,7 @@ static class NonDurableTransportTracing
 
     public static void AddProducerDispatchEvent(Activity? activity, DateTimeOffset? deliverAt)
     {
-        if (activity == null)
+        if (activity is not { IsAllDataRequested: true })
         {
             return;
         }
