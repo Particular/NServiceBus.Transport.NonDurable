@@ -81,7 +81,7 @@ static class NonDurableTransportTracing
         activity.AddEvent(new ActivityEvent("exception", DateTimeOffset.UtcNow,
         [
             new KeyValuePair<string, object?>("exception.escaped", exceptionEscaped),
-            new KeyValuePair<string, object?>("exception.type", ex.GetType()),
+            new KeyValuePair<string, object?>("exception.type", ex.GetType().FullName),
             new KeyValuePair<string, object?>("exception.message", ex.Message),
             new KeyValuePair<string, object?>("exception.stacktrace", ex.ToString())
         ]));
