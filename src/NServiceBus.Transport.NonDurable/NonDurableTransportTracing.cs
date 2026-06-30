@@ -83,7 +83,7 @@ static class NonDurableTransportTracing
             new KeyValuePair<string, object?>("exception.message", ex.Message),
             new KeyValuePair<string, object?>("exception.stacktrace", ex.ToString())
         ]));
-        activity.SetTag(ErrorType, ex.GetType().Name);
+        activity.SetTag(ErrorType, ex.GetType().FullName);
     }
 
     public static void MarkSuccess(Activity? activity)
