@@ -48,6 +48,43 @@ public class When_coordinating_with_synchronized_storage
     }
 
     [Test]
+    public async Task SendsAtomicWithReceive_should_not_publish_an_ambient_transaction()
+    {
+        // Regression guard for a customer repro: the runner must NOT set Transaction.Current
+        // around the handler. If it did, a handler opening a SqlConnection with the default
+        // Enlist=true would auto-enlist into the transport-owned CommittableTransaction, which
+        // the runner later commits/disposes — poisoning the connection pool with
+        // ObjectDisposedException. The coordinator is shared ONLY via the dedicated bag key
+        // (mirrors the SQL transport SendsAtomicWithReceive strategy, which never sets an ambient).
+        // Sentinel: a non-null Transaction reference so a skipped handler is distinct from a
+        // correctly-null ambient. The handler must overwrite both to null.
+        using var sentinel = new CommittableTransaction();
+        var ambientDuringSyncPrologue = (Transaction?)sentinel;
+        var ambientAfterAwait = (Transaction?)sentinel;
+        TransportTransaction? capturedBag = null;
+        var (runner, _) = NewRunner();
+
+        runner.Initialize(async (messageContext, ct) =>
+            {
+                capturedBag = messageContext.TransportTransaction;
+                ambientDuringSyncPrologue = Transaction.Current; // observed before any await
+                await Task.Yield();
+                ambientAfterAwait = Transaction.Current;
+            },
+            (_, _) => Task.FromResult(ErrorHandleResult.Handled));
+
+        await runner.Process(ReceivedEnvelope());
+
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(ambientDuringSyncPrologue, Is.Null, "Transaction.Current must be null in the handler's synchronous prologue (no auto-enlistment surface)");
+            Assert.That(ambientAfterAwait, Is.Null, "Transaction.Current must be null after an await in the handler");
+            Assert.That(capturedBag!.TryGet(NonDurableTransactionKeys.Transaction, out Transaction? published), Is.True, "the coordinator is still published under the dedicated bag key");
+            Assert.That(published, Is.Not.Null);
+        }
+    }
+
+    [Test]
     public async Task Handler_failure_should_rollback_saga_and_dispose_enlisted_send()
     {
         var session = new FakeStorageSession();
