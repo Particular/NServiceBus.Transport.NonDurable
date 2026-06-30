@@ -68,7 +68,7 @@ static class NonDurableTransportTracing
         activity.AddEvent(new ActivityEvent(EnqueuedEventName));
     }
 
-    public static void MarkError(Activity? activity, Exception ex, bool exceptionEscaped = true)
+    public static void MarkError(Activity? activity, Exception ex, bool exceptionEscaped)
     {
         if (activity == null)
         {

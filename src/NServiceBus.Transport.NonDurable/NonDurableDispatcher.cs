@@ -309,7 +309,7 @@ class NonDurableDispatcher(
                 envelope.Dispose();
             }
 
-            NonDurableTransportTracing.MarkError(activity, ex);
+            NonDurableTransportTracing.MarkError(activity, ex, exceptionEscaped: true);
             throw;
         }
         finally
