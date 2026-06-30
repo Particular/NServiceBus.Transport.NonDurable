@@ -76,13 +76,22 @@ static class NonDurableTransportTracing
         }
 
         activity.SetStatus(ActivityStatusCode.Error, ex.Message);
-        activity.AddEvent(new ActivityEvent("exception", DateTimeOffset.UtcNow,
-        [
-            new KeyValuePair<string, object?>("exception.escaped", exceptionEscaped),
-            new KeyValuePair<string, object?>("exception.type", ex.GetType().FullName),
-            new KeyValuePair<string, object?>("exception.message", ex.Message),
-            new KeyValuePair<string, object?>("exception.stacktrace", ex.ToString())
-        ]));
+
+        // Keep the cheap exception attributes always; the stacktrace (ex.ToString()) can be
+        // large, so only materialize it when the span is fully recorded.
+        var exceptionTags = new ActivityTagsCollection
+        {
+            ["exception.escaped"] = exceptionEscaped,
+            ["exception.type"] = ex.GetType().FullName,
+            ["exception.message"] = ex.Message,
+        };
+
+        if (activity.IsAllDataRequested)
+        {
+            exceptionTags["exception.stacktrace"] = ex.ToString();
+        }
+
+        activity.AddEvent(new ActivityEvent("exception", DateTimeOffset.UtcNow, exceptionTags));
         activity.SetTag(ErrorType, ex.GetType().FullName);
     }
 
