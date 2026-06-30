@@ -51,7 +51,7 @@ static class NonDurableTransportTracing
 
     public static void AddProducerDispatchEvent(Activity? activity, DateTimeOffset? deliverAt)
     {
-        if (activity == null)
+        if (activity is not { IsAllDataRequested: true })
         {
             return;
         }
@@ -76,16 +76,23 @@ static class NonDurableTransportTracing
         }
 
         activity.SetStatus(ActivityStatusCode.Error, ex.Message);
-        activity.SetTag("otel.status_code", "ERROR");
-        activity.SetTag("otel.status_description", ex.Message);
-        activity.AddEvent(new ActivityEvent("exception", DateTimeOffset.UtcNow,
-        [
-            new KeyValuePair<string, object?>("exception.escaped", exceptionEscaped),
-            new KeyValuePair<string, object?>("exception.type", ex.GetType()),
-            new KeyValuePair<string, object?>("exception.message", ex.Message),
-            new KeyValuePair<string, object?>("exception.stacktrace", ex.ToString())
-        ]));
-        activity.SetTag(ErrorType, ex.GetType().Name);
+
+        // Keep the cheap exception attributes always; the stacktrace (ex.ToString()) can be
+        // large, so only materialize it when the span is fully recorded.
+        var exceptionTags = new ActivityTagsCollection
+        {
+            ["exception.escaped"] = exceptionEscaped,
+            ["exception.type"] = ex.GetType().FullName,
+            ["exception.message"] = ex.Message,
+        };
+
+        if (activity.IsAllDataRequested)
+        {
+            exceptionTags["exception.stacktrace"] = ex.ToString();
+        }
+
+        activity.AddEvent(new ActivityEvent("exception", DateTimeOffset.UtcNow, exceptionTags));
+        activity.SetTag(ErrorType, ex.GetType().FullName);
     }
 
     public static void MarkSuccess(Activity? activity)
@@ -98,6 +105,11 @@ static class NonDurableTransportTracing
         activity.SetStatus(ActivityStatusCode.Ok);
     }
 
+    // Context propagation (traceparent/tracestate/baggage) is hand-rolled to intentionally
+    // mirror NServiceBus Core's internal ContextPropagation class byte-for-byte (same W3C
+    // baggage serialization and span-based extraction). Do NOT switch to
+    // DistributedContextPropagator here: Core itself does not use it, and diverging would
+    // make this transport's injected/extracted baggage inconsistent with Core's pipeline.
     public static void PropagateContextToHeaders(Activity? activity, IDictionary<string, string> headers)
     {
         if (activity?.Id is not { } activityId)

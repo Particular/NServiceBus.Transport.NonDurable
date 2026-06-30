@@ -69,7 +69,16 @@ sealed class InlineExecutionRunner(
 
         if (NonDurableTransportTracing.HasListeners())
         {
-            transportActivity = NonDurableTransportTracing.StartProcess(envelope, receiveAddress);
+            try
+            {
+                transportActivity = NonDurableTransportTracing.StartProcess(envelope, receiveAddress);
+            }
+#pragma warning disable CA1031 // telemetry must never break message processing
+            catch (Exception)
+#pragma warning restore CA1031
+            {
+                transportActivity = null;
+            }
             if (transportActivity != null)
             {
                 contextBag.Set(transportActivity);
@@ -111,7 +120,7 @@ sealed class InlineExecutionRunner(
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ProcessingCancellationToken.IsCancellationRequested)
         {
-            NonDurableTransportTracing.MarkError(transportActivity, ex);
+            NonDurableTransportTracing.MarkError(transportActivity, ex, exceptionEscaped: false);
             // A CommittableTransaction is single-use: once Commit() has succeeded it cannot be
             // rolled back (Rollback() on a committed tx throws TransactionException). If the
             // post-Commit enlisted-send flush threw, the saga/persistence mutations are already
