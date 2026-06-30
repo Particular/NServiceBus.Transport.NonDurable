@@ -84,17 +84,14 @@ sealed class InlineExecutionRunner(
             receiveAddress,
             contextBag);
 
-        var previousAmbient = Transaction.Current;
-        if (committable != null)
-        {
-            // The ambient transaction is published so ambient-transaction-aware components
-            // (including the NonDurable persistence transport-adaptation path) can enlist into
-            // the per-Process CommittableTransaction. It is restored to previousAmbient before
-            // Commit/Rollback and again in finally. The coordinator is also published under the
-            // dedicated cross-repo string key NonDurableTransactionKeys.Transaction for consumers
-            // that read the bag explicitly.
-            Transaction.Current = committable;
-        }
+        // No ambient transaction is published (Transaction.Current is intentionally never set).
+        // The coordinator is shared ONLY under the dedicated cross-repo string key
+        // NonDurableTransactionKeys.Transaction, which the NonDurable persistence reads directly.
+        // Setting Transaction.Current here would leak it into the handler's synchronous prologue and
+        // cause user connections (e.g. SqlConnection.Open with the default Enlist=true) to auto-enlist
+        // into this transport-owned CommittableTransaction, which the runner then commits/disposes —
+        // poisoning the connection pool (ObjectDisposedException). Mirrors the SQL transport
+        // SendsAtomicWithReceive strategy (ProcessWithNativeTransaction), which never sets an ambient.
 
         var committed = false;
 
@@ -104,7 +101,6 @@ sealed class InlineExecutionRunner(
 
             if (committable != null)
             {
-                Transaction.Current = previousAmbient;
                 committable.Commit();
                 committed = true;
                 await CommitPendingToBrokerAsync(enlistment!, ProcessingCancellationToken).ConfigureAwait(false);
@@ -116,7 +112,6 @@ sealed class InlineExecutionRunner(
         catch (Exception ex) when (ex is not OperationCanceledException || !ProcessingCancellationToken.IsCancellationRequested)
         {
             NonDurableTransportTracing.MarkError(transportActivity, ex);
-            Transaction.Current = previousAmbient;
             // A CommittableTransaction is single-use: once Commit() has succeeded it cannot be
             // rolled back (Rollback() on a committed tx throws TransactionException). If the
             // post-Commit enlisted-send flush threw, the saga/persistence mutations are already
@@ -204,7 +199,6 @@ sealed class InlineExecutionRunner(
         }
         finally
         {
-            Transaction.Current = previousAmbient;
             committable?.Dispose();
             errorCommittable?.Dispose();
             transportActivity?.Dispose();
