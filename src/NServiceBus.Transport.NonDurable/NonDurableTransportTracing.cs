@@ -96,6 +96,11 @@ static class NonDurableTransportTracing
         activity.SetStatus(ActivityStatusCode.Ok);
     }
 
+    // Context propagation (traceparent/tracestate/baggage) is hand-rolled to intentionally
+    // mirror NServiceBus Core's internal ContextPropagation class byte-for-byte (same W3C
+    // baggage serialization and span-based extraction). Do NOT switch to
+    // DistributedContextPropagator here: Core itself does not use it, and diverging would
+    // make this transport's injected/extracted baggage inconsistent with Core's pipeline.
     public static void PropagateContextToHeaders(Activity? activity, IDictionary<string, string> headers)
     {
         if (activity?.Id is not { } activityId)
