@@ -69,7 +69,16 @@ sealed class InlineExecutionRunner(
 
         if (NonDurableTransportTracing.HasListeners())
         {
-            transportActivity = NonDurableTransportTracing.StartProcess(envelope, receiveAddress);
+            try
+            {
+                transportActivity = NonDurableTransportTracing.StartProcess(envelope, receiveAddress);
+            }
+#pragma warning disable CA1031 // telemetry must never break message processing
+            catch (Exception)
+#pragma warning restore CA1031
+            {
+                transportActivity = null;
+            }
             if (transportActivity != null)
             {
                 contextBag.Set(transportActivity);

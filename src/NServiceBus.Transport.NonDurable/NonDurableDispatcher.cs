@@ -261,7 +261,16 @@ class NonDurableDispatcher(
         if (NonDurableTransportTracing.HasListeners())
         {
             var headers = (Dictionary<string, string>)envelope.Headers;
-            activity = NonDurableTransportTracing.StartSend(destination, messageId, headers, deliverAt.HasValue);
+            try
+            {
+                activity = NonDurableTransportTracing.StartSend(destination, messageId, headers, deliverAt.HasValue);
+            }
+#pragma warning disable CA1031 // telemetry must never break dispatch
+            catch (Exception)
+#pragma warning restore CA1031
+            {
+                activity = null;
+            }
             NonDurableTransportTracing.PropagateContextToHeaders(activity, headers);
         }
 
