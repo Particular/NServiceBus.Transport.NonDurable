@@ -12,7 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="NServiceBus" Version="10.2.7" />
-    <PackageReference Include="System.Threading.RateLimiting" Version="10.0.9" AutomaticVersionRange="false" />
+    <PackageReference Include="System.Threading.RateLimiting" Version="10.0.10" AutomaticVersionRange="false" />
   </ItemGroup>
 
   <ItemGroup>
