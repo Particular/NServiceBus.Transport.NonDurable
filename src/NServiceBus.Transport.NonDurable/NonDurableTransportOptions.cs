@@ -26,4 +26,11 @@ public sealed class NonDurableTransportOptions(NonDurableBroker? broker = null)
     /// to local queues. This can simplify testing scenarios but should be used carefully in production code.
     /// </remarks>
     public InlineExecutionOptions? InlineExecution { get; set; }
+
+    /// <summary>
+    /// Controls the shutdown behavior for the endpoint, which by default uses
+    /// <see cref="NonDurableTransportShutdownBehavior.DrainQueueBeforeShutdown" /> to provide better safe-by-default
+    /// behavior than most durable message brokers provide, because otherwise in-memory messages can be lost.
+    /// </summary>
+    public NonDurableTransportShutdownBehavior ShutdownBehavior { get; set; } = NonDurableTransportShutdownBehavior.DrainQueueBeforeShutdown;
 }

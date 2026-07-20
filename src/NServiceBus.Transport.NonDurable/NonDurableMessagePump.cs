@@ -13,7 +13,8 @@ class NonDurableMessagePump(
     ReceiveSettings receiveSettings,
     TransportTransactionMode transactionMode,
     Action<string, Exception, CancellationToken> criticalErrorAction,
-    NonDurableBroker broker) : IMessageReceiver
+    NonDurableBroker broker,
+    NonDurableTransportShutdownBehavior shutdownBehavior) : IMessageReceiver
 {
     public string Id { get; } = id;
 
