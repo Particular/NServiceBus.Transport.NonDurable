@@ -68,6 +68,11 @@ class NonDurableMessagePump(
             {
                 if (stopRequested.Task.IsCompleted)
                 {
+                    if (shutdownBehavior == NonDurableTransportShutdownBehavior.ShutdownAfterHandlerExit)
+                    {
+                        break;
+                    }
+
 #pragma warning disable CA2000 // ownership is transferred to the caller
                     if (!queue.TryDequeue(out envelope))
 #pragma warning restore CA2000
@@ -93,6 +98,13 @@ class NonDurableMessagePump(
                     envelope.Dispose();
                     envelope = null;
                     continue;
+                }
+
+                if (stopRequested.Task.IsCompleted && shutdownBehavior == NonDurableTransportShutdownBehavior.ShutdownAfterHandlerExit)
+                {
+                    await queue.Enqueue(envelope, CancellationToken.None).ConfigureAwait(false);
+                    envelope = null;
+                    break;
                 }
 
                 isProcessing = true;
@@ -166,7 +178,8 @@ class NonDurableMessagePump(
 
     public async Task StopReceive(CancellationToken cancellationToken = default)
     {
-        // Graceful stop stops waiting for new work and lets buffered/in-flight processing drain.
+        // Graceful stop stops waiting for new work. Depending on shutdownBehavior, buffered messages
+        // either drain before shutdown or remain queued while in-flight handlers are allowed to finish.
         // Only host-forced cancellation escalates to a hard stop that interrupts handlers.
         stopRequested.TrySetResult();
         Cancel(receiveAttemptCts);
