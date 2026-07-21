@@ -48,7 +48,7 @@ public enum NonDurableTransportShutdownBehavior
     /// </para>
     /// <para>
     /// Buffered messages remain in the queue on shutdown. They can be processed if the same receiver starts again,
-    /// for example through <c>ChangeConcurrency</c>; otherwise they are lost when the <see cref="NonDurableBroker" />
+    /// for example, through <c>ChangeConcurrency</c>; otherwise they are lost when the <see cref="NonDurableBroker" />
     /// is disposed. A new endpoint using the same broker can process a buffered message, but it cannot complete an
     /// inline-execution dispatch task owned by the previous endpoint instance. Use <see cref="DrainQueueBeforeShutdown" />
     /// if inline cascades must be given an opportunity to complete before shutdown returns.
