@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_receiving_shutdown_with_ShutdownAfterHandlerExit_behavior
 {
     [Test]
-    public async Task Run()
+    public async Task Should_let_in_flight_handler_finish_and_keep_buffered_message_until_restart()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(
