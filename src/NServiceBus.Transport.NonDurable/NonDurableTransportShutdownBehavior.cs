@@ -33,19 +33,25 @@ public enum NonDurableTransportShutdownBehavior
 
     /// <summary>
     /// <para>
-    /// In this mode, which more closely resembles durable message transports, the endpoint will attempt to allow each
-    /// currently in-flight message to complete but will not start processing any new messages.
+    /// In this mode, which more closely resembles durable message transports, the endpoint allows message pipelines
+    /// admitted before shutdown to complete but does not admit additional queued or inline message pipelines.
+    /// A message already fetched from the queue when shutdown begins is considered in-flight.
+    /// </para>
+    /// <para>
+    /// An inline operation attempted after its destination receiver begins stopping is rejected. The originating
+    /// parent message then follows its configured recoverability policy. If recoverability requests a retry, the
+    /// parent message is requeued and remains buffered until processing restarts.
     /// </para>
     /// <para>
     /// If a <see cref="CancellationToken" /> is provided to the Stop method, and it signals cancellation, the in-flight
     /// message handlers will be interrupted to force the endpoint to stop faster.
     /// </para>
     /// <para>
-    /// Buffered messages remain in the queue on shutdown. They are only processed if the endpoint is started again
-    /// (for example, via <c>ChangeConcurrency</c> or a restart); otherwise they are lost when the <see cref="NonDurableBroker" />
-    /// is disposed. This also means that an inline-execution root dispatch whose cascade has buffered-but-unprocessed
-    /// messages will not reach a terminal outcome on shutdown, so its dispatch task may stay incomplete until the
-    /// endpoint restarts. Use <see cref="DrainQueueBeforeShutdown" /> if those cascades must complete before shutdown returns.
+    /// Buffered messages remain in the queue on shutdown. They can be processed if the same receiver starts again,
+    /// for example through <c>ChangeConcurrency</c>; otherwise they are lost when the <see cref="NonDurableBroker" />
+    /// is disposed. A new endpoint using the same broker can process a buffered message, but it cannot complete an
+    /// inline-execution dispatch task owned by the previous endpoint instance. Use <see cref="DrainQueueBeforeShutdown" />
+    /// if inline cascades must be given an opportunity to complete before shutdown returns.
     /// </para>
     /// </summary>
     ShutdownAfterHandlerExit = 1,
