@@ -31,7 +31,13 @@ sealed class InlineExecutionRunner(
 
     public void UpdateProcessingCancellationTokenAccessor(Func<CancellationToken> accessor) => processingCancellationTokenAccessor = accessor;
 
-    public async Task Process(BrokerEnvelope envelope, CancellationToken cancellationToken = default)
+    public Task Process(BrokerEnvelope envelope, CancellationToken cancellationToken = default) =>
+        Process(envelope, includeCallerCancellation: false, cancellationToken);
+
+    public Task ProcessInline(BrokerEnvelope envelope, CancellationToken cancellationToken = default) =>
+        Process(envelope, includeCallerCancellation: true, cancellationToken);
+
+    async Task Process(BrokerEnvelope envelope, bool includeCallerCancellation, CancellationToken cancellationToken)
     {
         var headers = new Dictionary<string, string>(envelope.Headers);
         var transportTransaction = new TransportTransaction();
@@ -103,22 +109,38 @@ sealed class InlineExecutionRunner(
         // SendsAtomicWithReceive strategy (ProcessWithNativeTransaction), which never sets an ambient.
 
         var committed = false;
+        var receiverProcessingCancellationToken = processingCancellationTokenAccessor();
+        CancellationTokenSource? linkedProcessingCancellation = null;
+        CancellationToken processingCancellationToken;
+        if (!includeCallerCancellation || !cancellationToken.CanBeCanceled)
+        {
+            processingCancellationToken = receiverProcessingCancellationToken;
+        }
+        else if (!receiverProcessingCancellationToken.CanBeCanceled || cancellationToken == receiverProcessingCancellationToken)
+        {
+            processingCancellationToken = cancellationToken;
+        }
+        else
+        {
+            linkedProcessingCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, receiverProcessingCancellationToken);
+            processingCancellationToken = linkedProcessingCancellation.Token;
+        }
 
         try
         {
-            await onMessage(messageContext, ProcessingCancellationToken).ConfigureAwait(false);
+            await onMessage(messageContext, processingCancellationToken).ConfigureAwait(false);
 
             if (committable != null)
             {
                 committable.Commit();
                 committed = true;
-                await CommitPendingToBrokerAsync(enlistment!, ProcessingCancellationToken).ConfigureAwait(false);
+                await CommitPendingToBrokerAsync(enlistment!, processingCancellationToken).ConfigureAwait(false);
             }
 
             inlineState?.Scope.CompleteDispatchSuccess();
             NonDurableTransportTracing.MarkSuccess(transportActivity);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ProcessingCancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (ex is not OperationCanceledException || !processingCancellationToken.IsCancellationRequested)
         {
             NonDurableTransportTracing.MarkError(transportActivity, ex, exceptionEscaped: false);
             // A CommittableTransaction is single-use: once Commit() has succeeded it cannot be
@@ -154,7 +176,7 @@ sealed class InlineExecutionRunner(
                 receiveAddress,
                 contextBag);
 
-            var result = await HandleErrorAsync(errorContext, messageContext, cancellationToken).ConfigureAwait(false);
+            var result = await HandleErrorAsync(errorContext, messageContext, processingCancellationToken).ConfigureAwait(false);
 
             if (result == ErrorHandleResult.Handled && errorCommittable != null)
             {
@@ -168,9 +190,9 @@ sealed class InlineExecutionRunner(
                 {
                     errorCommittable.Commit();
                     errorCommitted = true;
-                    await CommitPendingToBrokerAsync(enlistment!, ProcessingCancellationToken).ConfigureAwait(false);
+                    await CommitPendingToBrokerAsync(enlistment!, processingCancellationToken).ConfigureAwait(false);
                 }
-                catch (Exception commitEx) when (commitEx is not OperationCanceledException || !ProcessingCancellationToken.IsCancellationRequested)
+                catch (Exception commitEx) when (commitEx is not OperationCanceledException || !processingCancellationToken.IsCancellationRequested)
                 {
                     if (!errorCommitted)
                     {
@@ -208,6 +230,7 @@ sealed class InlineExecutionRunner(
         }
         finally
         {
+            linkedProcessingCancellation?.Dispose();
             committable?.Dispose();
             errorCommittable?.Dispose();
             transportActivity?.Dispose();
@@ -217,15 +240,15 @@ sealed class InlineExecutionRunner(
     async Task<ErrorHandleResult> HandleErrorAsync(
         ErrorContext errorContext,
         MessageContext messageContext,
-        CancellationToken pumpCancellationToken)
+        CancellationToken cancellationToken)
     {
         try
         {
-            return await onError(errorContext, ProcessingCancellationToken).ConfigureAwait(false);
+            return await onError(errorContext, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception onErrorException) when (onErrorException is not OperationCanceledException || !ProcessingCancellationToken.IsCancellationRequested)
+        catch (Exception onErrorException) when (onErrorException is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            criticalErrorAction($"Failed to execute recoverability policy for message with native ID: `{messageContext.NativeMessageId}`", onErrorException, pumpCancellationToken);
+            criticalErrorAction($"Failed to execute recoverability policy for message with native ID: `{messageContext.NativeMessageId}`", onErrorException, cancellationToken);
             return ErrorHandleResult.RetryRequired;
         }
     }
@@ -294,8 +317,6 @@ sealed class InlineExecutionRunner(
     static bool IsDeferredRetry(TransportTransaction transportTransaction) =>
         transportTransaction.TryGet<RecoverabilityAction>(out var action) &&
         action is DelayedRetry or ImmediateRetry;
-
-    CancellationToken ProcessingCancellationToken => processingCancellationTokenAccessor();
 
     OnMessage onMessage = null!;
     OnError onError = null!;

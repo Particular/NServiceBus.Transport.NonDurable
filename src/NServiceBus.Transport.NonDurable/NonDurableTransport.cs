@@ -28,6 +28,7 @@ public class NonDurableTransport : TransportDefinition
         var transportOptions = options ?? new NonDurableTransportOptions();
         configuredBroker = transportOptions.Broker;
         InlineExecutionSettings = new InlineExecutionSettings(transportOptions);
+        ShutdownBehavior = transportOptions.ShutdownBehavior;
 
         if (InlineExecutionSettings.IsEnabled)
         {
@@ -64,4 +65,6 @@ public class NonDurableTransport : TransportDefinition
     readonly NonDurableBroker? configuredBroker;
 
     internal InlineExecutionSettings InlineExecutionSettings { get; }
+
+    internal NonDurableTransportShutdownBehavior ShutdownBehavior { get; }
 }

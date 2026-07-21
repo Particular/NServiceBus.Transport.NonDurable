@@ -23,9 +23,17 @@ static class InlineExecutionTestHelper
         return infrastructure.Dispatcher;
     }
 
-    public static Task<TransportInfrastructure> CreateInfrastructure(NonDurableBroker broker, string[] receiveAddresses, TransportTransactionMode transactionMode = TransportTransactionMode.SendsAtomicWithReceive, CancellationToken cancellationToken = default)
+    public static Task<TransportInfrastructure> CreateInfrastructure(NonDurableBroker broker,
+        string[] receiveAddresses,
+        TransportTransactionMode transactionMode = TransportTransactionMode.SendsAtomicWithReceive,
+        NonDurableTransportShutdownBehavior shutdownBehavior = NonDurableTransportShutdownBehavior.DrainQueueBeforeShutdown,
+        CancellationToken cancellationToken = default)
     {
-        var transport = new NonDurableTransport(new NonDurableTransportOptions(broker) { InlineExecution = new() })
+        var transport = new NonDurableTransport(new NonDurableTransportOptions(broker)
+        {
+            InlineExecution = new(),
+            ShutdownBehavior = shutdownBehavior
+        })
         {
             TransportTransactionMode = transactionMode
         };

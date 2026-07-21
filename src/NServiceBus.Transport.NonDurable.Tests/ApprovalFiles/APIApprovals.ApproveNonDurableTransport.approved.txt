@@ -74,5 +74,11 @@ namespace NServiceBus
         public NonDurableTransportOptions(NServiceBus.NonDurableBroker? broker = null) { }
         public NServiceBus.NonDurableBroker? Broker { get; }
         public NServiceBus.InlineExecutionOptions? InlineExecution { get; set; }
+        public NServiceBus.NonDurableTransportShutdownBehavior ShutdownBehavior { get; set; }
+    }
+    public enum NonDurableTransportShutdownBehavior
+    {
+        DrainQueueBeforeShutdown = 0,
+        ShutdownAfterHandlerExit = 1,
     }
 }
