@@ -29,8 +29,8 @@ public sealed class NonDurableTransportOptions(NonDurableBroker? broker = null)
 
     /// <summary>
     /// Controls the shutdown behavior for the endpoint, which by default uses
-    /// <see cref="NonDurableTransportShutdownBehavior.DrainQueueBeforeShutdown" /> to provide better safe-by-default
-    /// behavior than most durable message brokers provide, because otherwise in-memory messages can be lost.
+    /// <see cref="NonDurableTransportShutdownBehavior.DrainQueueBeforeShutdown" /> to provide safer-by-default
+    /// behavior than most durable message brokers, because otherwise in-memory messages can be lost.
     /// </summary>
     public NonDurableTransportShutdownBehavior ShutdownBehavior { get; set; } = NonDurableTransportShutdownBehavior.DrainQueueBeforeShutdown;
 }
