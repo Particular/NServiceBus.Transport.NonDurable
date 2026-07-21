@@ -40,6 +40,13 @@ public enum NonDurableTransportShutdownBehavior
     /// If a <see cref="CancellationToken" /> is provided to the Stop method and it signals cancellation, the in-flight
     /// message handlers will be interrupted to force the endpoint to stop faster.
     /// </para>
+    /// <para>
+    /// Buffered messages remain in the queue on shutdown. They are only processed if the endpoint is started again
+    /// (for example via <c>ChangeConcurrency</c> or a restart); otherwise they are lost when the <see cref="NonDurableBroker" />
+    /// is disposed. This also means that an inline-execution root dispatch whose cascade has buffered-but-unprocessed
+    /// messages will not reach a terminal outcome on shutdown, so its dispatch task may stay incomplete until the
+    /// endpoint restarts. Use <see cref="DrainQueueBeforeShutdown" /> if those cascades must complete before shutdown returns.
+    /// </para>
     /// </summary>
     ShutdownAfterHandlerExit = 1,
 }
