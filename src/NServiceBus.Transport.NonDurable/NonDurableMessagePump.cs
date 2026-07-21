@@ -100,16 +100,10 @@ class NonDurableMessagePump(
                     continue;
                 }
 
-                if (stopRequested.Task.IsCompleted && shutdownBehavior == NonDurableTransportShutdownBehavior.ShutdownAfterHandlerExit)
-                {
-                    // A message can be dequeued in the narrow window between the dequeue returning and this check, while
-                    // stop is requested on another thread. Put it back so it isn't lost. Note: the re-enqueue appends to
-                    // the back of the channel, so strict FIFO ordering is not preserved across this stop-race boundary.
-                    await queue.Enqueue(envelope, CancellationToken.None).ConfigureAwait(false);
-                    envelope = null;
-                    break;
-                }
-
+                // ShutdownAfterHandlerExit: stop only prevents *fetching* new messages. A message already dequeued
+                // in this iteration is treated as in-flight and allowed to complete; the loop-top guard above ensures
+                // no further dequeues happen. Requeue of an interrupted in-flight message is handled by the hard-stop
+                // catch below, which is the only place requeue is genuinely needed.
                 isProcessing = true;
 
                 var inlineState = envelope.InlineState;
