@@ -182,35 +182,84 @@ class NonDurableDispatcher(
     {
         var existingScope = TryGetInlineScope(transaction, out var scope);
         scope ??= new InlineExecutionScope(Guid.NewGuid());
-        scope.BeginDispatch();
-
-        if (!existingScope)
-        {
-            if (pumpsByAddress.TryGetValue(operation.Destination, out var pump))
-            {
-                pump.TrackPendingInlineScope(scope);
-            }
-        }
-
-        var inlineEnvelope = envelope with
-        {
-            InlineState = new InlineEnvelopeState(scope, existingScope ? 1 : 0, !existingScope)
-        };
-        var completion = scope.Completion;
 
         if (existingScope)
         {
+            var destinationPump = pumpsByAddress[operation.Destination];
+            if (!destinationPump.TryEnterInlineProcessing())
+            {
+                envelope.Dispose();
+                return Task.FromException(new OperationCanceledException($"Inline dispatch to '{operation.Destination}' was rejected because the receiver is stopping."));
+            }
+
+            scope.BeginDispatch();
+            var inlineEnvelope = envelope with
+            {
+                InlineState = new InlineEnvelopeState(scope, 1, false)
+            };
             var runner = inlineExecutionRunners[operation.Destination];
-            var processing = runner.Process(inlineEnvelope, cancellationToken);
+            var processing = ProcessReentrantInline(runner, destinationPump, inlineEnvelope, scope, cancellationToken);
 
             ObserveReentrantProcessing(processing);
 
             return processing;
         }
 
-        var preparation = DispatchRegularUnicast(operation, inlineEnvelope, deliverAt, cancellationToken);
+        scope.BeginDispatch();
+        if (pumpsByAddress.TryGetValue(operation.Destination, out var pump))
+        {
+            pump.TrackPendingInlineScope(scope);
+        }
+
+        var rootEnvelope = envelope with
+        {
+            InlineState = new InlineEnvelopeState(scope, 0, true)
+        };
+        var completion = scope.Completion;
+        var preparation = DispatchRegularUnicast(operation, rootEnvelope, deliverAt, cancellationToken);
 
         return preparation.IsCompletedSuccessfully ? completion : AwaitInlineDispatch(preparation, scope, completion, cancellationToken);
+    }
+
+    static Task ProcessReentrantInline(
+        InlineExecutionRunner runner,
+        NonDurableMessagePump destinationPump,
+        BrokerEnvelope envelope,
+        InlineExecutionScope scope,
+        CancellationToken cancellationToken)
+    {
+        var processing = runner.ProcessInline(envelope, cancellationToken);
+        return processing.ContinueWith(
+            static (completed, state) =>
+            {
+                var (pump, inlineEnvelope, inlineScope) = ((NonDurableMessagePump, BrokerEnvelope, InlineExecutionScope))state!;
+                try
+                {
+                    if (completed.IsCanceled)
+                    {
+                        inlineScope.CompleteDispatchCanceled(new TaskCanceledException(completed));
+                        inlineEnvelope.Dispose();
+                    }
+                    else if (completed.IsFaulted)
+                    {
+                        var exception = completed.Exception.InnerExceptions.Count == 1
+                            ? completed.Exception.InnerException!
+                            : completed.Exception;
+                        inlineScope.CompleteDispatchFailure(exception);
+                        inlineEnvelope.Dispose();
+                    }
+                }
+                finally
+                {
+                    pump.ExitInlineProcessing();
+                }
+
+                return completed;
+            },
+            (destinationPump, envelope, scope),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default).Unwrap();
     }
 
     static async Task AwaitInlineDispatch(Task preparation, InlineExecutionScope scope, Task completion, CancellationToken cancellationToken)

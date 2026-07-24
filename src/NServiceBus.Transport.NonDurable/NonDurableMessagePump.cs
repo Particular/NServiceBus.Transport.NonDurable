@@ -13,7 +13,8 @@ class NonDurableMessagePump(
     ReceiveSettings receiveSettings,
     TransportTransactionMode transactionMode,
     Action<string, Exception, CancellationToken> criticalErrorAction,
-    NonDurableBroker broker) : IMessageReceiver
+    NonDurableBroker broker,
+    NonDurableTransportShutdownBehavior shutdownBehavior) : IMessageReceiver
 {
     public string Id { get; } = id;
 
@@ -42,6 +43,7 @@ class NonDurableMessagePump(
         messageProcessingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         receiveAttemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         stopRequested = CreateStopSignal();
+        EnableInlineProcessingAdmission();
 
         _ = broker.StartPump(cancellationToken);
 
@@ -67,6 +69,11 @@ class NonDurableMessagePump(
             {
                 if (stopRequested.Task.IsCompleted)
                 {
+                    if (shutdownBehavior == NonDurableTransportShutdownBehavior.ShutdownAfterHandlerExit)
+                    {
+                        break;
+                    }
+
 #pragma warning disable CA2000 // ownership is transferred to the caller
                     if (!queue.TryDequeue(out envelope))
 #pragma warning restore CA2000
@@ -94,6 +101,10 @@ class NonDurableMessagePump(
                     continue;
                 }
 
+                // ShutdownAfterHandlerExit: stop only prevents *fetching* new messages. A message already dequeued
+                // in this iteration is treated as in-flight and allowed to complete; the loop-top guard above ensures
+                // no further dequeues happen. Requeue of an interrupted in-flight message is handled by the hard-stop
+                // catch below, which is the only place requeue is genuinely needed.
                 isProcessing = true;
 
                 var inlineState = envelope.InlineState;
@@ -165,8 +176,10 @@ class NonDurableMessagePump(
 
     public async Task StopReceive(CancellationToken cancellationToken = default)
     {
-        // Graceful stop stops waiting for new work and lets buffered/in-flight processing drain.
+        // Graceful stop stops waiting for new work. Depending on shutdownBehavior, buffered messages
+        // either drain before shutdown or remain queued while in-flight handlers are allowed to finish.
         // Only host-forced cancellation escalates to a hard stop that interrupts handlers.
+        var inlineProcessingDrainSignal = CloseInlineProcessingAdmission();
         stopRequested.TrySetResult();
         Cancel(receiveAttemptCts);
 
@@ -176,25 +189,33 @@ class NonDurableMessagePump(
             TriggerHardStop();
         }
 
-        if (pumpTasks.Count != 0)
+        try
         {
-            try
+            if (pumpTasks.Count != 0)
             {
-                await Task.WhenAll(pumpTasks).ConfigureAwait(false);
+                try
+                {
+                    await Task.WhenAll(pumpTasks).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (pumpCts?.IsCancellationRequested == true || cancellationToken.IsCancellationRequested)
+                {
+                }
             }
-            catch (OperationCanceledException) when (pumpCts?.IsCancellationRequested == true || cancellationToken.IsCancellationRequested)
+        }
+        finally
+        {
+            if (inlineProcessingDrainSignal != null)
             {
+                await inlineProcessingDrainSignal.Task.ConfigureAwait(false);
             }
-            finally
-            {
-                pumpTasks.Clear();
-                pumpCts?.Dispose();
-                pumpCts = null;
-                messageProcessingCts?.Dispose();
-                messageProcessingCts = null;
-                receiveAttemptCts?.Dispose();
-                receiveAttemptCts = null;
-            }
+
+            pumpTasks.Clear();
+            pumpCts?.Dispose();
+            pumpCts = null;
+            messageProcessingCts?.Dispose();
+            messageProcessingCts = null;
+            receiveAttemptCts?.Dispose();
+            receiveAttemptCts = null;
         }
 
         if (cancellationToken.IsCancellationRequested)
@@ -222,6 +243,85 @@ class NonDurableMessagePump(
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+    }
+
+    internal bool TryEnterInlineProcessing()
+    {
+        if (shutdownBehavior == NonDurableTransportShutdownBehavior.DrainQueueBeforeShutdown)
+        {
+            return true;
+        }
+
+        lock (inlineProcessingLock)
+        {
+            if (!acceptingInlineProcessing)
+            {
+                return false;
+            }
+
+            if (activeInlineProcessing == 0)
+            {
+                inlineProcessingDrained = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            activeInlineProcessing++;
+            return true;
+        }
+    }
+
+    internal void ExitInlineProcessing()
+    {
+        if (shutdownBehavior == NonDurableTransportShutdownBehavior.DrainQueueBeforeShutdown)
+        {
+            return;
+        }
+
+        lock (inlineProcessingLock)
+        {
+            if (activeInlineProcessing == 0)
+            {
+                throw new InvalidOperationException("Cannot exit inline processing because no inline processing is active.");
+            }
+
+            activeInlineProcessing--;
+            if (activeInlineProcessing == 0)
+            {
+                inlineProcessingDrained?.TrySetResult();
+            }
+        }
+    }
+
+    void EnableInlineProcessingAdmission()
+    {
+        if (shutdownBehavior == NonDurableTransportShutdownBehavior.DrainQueueBeforeShutdown)
+        {
+            return;
+        }
+
+        lock (inlineProcessingLock)
+        {
+            if (activeInlineProcessing != 0)
+            {
+                throw new InvalidOperationException("Cannot start receiving while inline processing is still active.");
+            }
+
+            acceptingInlineProcessing = true;
+            inlineProcessingDrained = null;
+        }
+    }
+
+    TaskCompletionSource? CloseInlineProcessingAdmission()
+    {
+        if (shutdownBehavior == NonDurableTransportShutdownBehavior.DrainQueueBeforeShutdown)
+        {
+            return null;
+        }
+
+        lock (inlineProcessingLock)
+        {
+            acceptingInlineProcessing = false;
+            return activeInlineProcessing == 0 ? null : inlineProcessingDrained;
+        }
     }
 
     bool TryTakePendingInlineScopeForProcessing(Guid rootExecutionId, out InlineExecutionScope? scope)
@@ -359,4 +459,8 @@ class NonDurableMessagePump(
     readonly List<Task> pumpTasks = [];
     readonly Dictionary<Guid, InlineExecutionScope> activeScopes = [];
     readonly Lock activeScopesLock = new();
+    readonly Lock inlineProcessingLock = new();
+    TaskCompletionSource? inlineProcessingDrained;
+    int activeInlineProcessing;
+    bool acceptingInlineProcessing;
 }

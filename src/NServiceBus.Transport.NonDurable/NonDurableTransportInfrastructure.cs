@@ -52,7 +52,8 @@ class NonDurableTransportInfrastructure : TransportInfrastructure
             receiveSettings,
             transport.TransportTransactionMode,
             criticalErrorAction,
-            broker);
+            broker,
+            transport.ShutdownBehavior);
 
         pump.ConfigureSubscriptionManager(subscriptionManager);
 
