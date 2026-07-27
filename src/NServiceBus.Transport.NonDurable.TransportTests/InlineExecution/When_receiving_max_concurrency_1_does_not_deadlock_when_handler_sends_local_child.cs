@@ -13,7 +13,7 @@ using NUnit.Framework;
 public class When_receiving_max_concurrency_1_does_not_deadlock_when_handler_sends_local_child
 {
     [Test]
-    public async Task Run()
+    public async Task Should_not_deadlock_when_handler_sends_local_child_at_max_concurrency_1()
     {
         await using var broker = new NonDurableBroker();
         var transport = new NonDurableTransport(new NonDurableTransportOptions(broker) { InlineExecution = new() });

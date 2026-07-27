@@ -13,7 +13,7 @@ using NUnit.Framework;
 public class When_receiving_terminal_recoverability_failures_from_multiple_branches
 {
     [Test]
-    public async Task Run()
+    public async Task Should_surface_one_of_the_terminal_recoverability_failures_from_multiple_branches()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"]);

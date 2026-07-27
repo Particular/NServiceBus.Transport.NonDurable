@@ -10,7 +10,7 @@ using NUnit.Framework;
 public class When_dispatching_local_address_detection_restricted_to_endpoint_owned_receive_addresses
 {
     [Test]
-    public async Task Run()
+    public async Task Should_restrict_local_address_detection_to_endpoint_owned_receive_addresses()
     {
         await using var broker = new NonDurableBroker();
         var dispatcher = await CreateDispatcher(broker, ["input", "input-instance-a"]);

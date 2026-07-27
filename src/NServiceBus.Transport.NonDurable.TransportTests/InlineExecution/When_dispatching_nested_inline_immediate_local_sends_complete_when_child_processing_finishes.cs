@@ -13,7 +13,7 @@ using NUnit.Framework;
 public class When_dispatching_nested_inline_immediate_local_sends_complete_when_child_processing_finishes
 {
     [Test]
-    public async Task Run()
+    public async Task Should_complete_nested_inline_immediate_local_sends_when_child_processing_finishes()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"]);

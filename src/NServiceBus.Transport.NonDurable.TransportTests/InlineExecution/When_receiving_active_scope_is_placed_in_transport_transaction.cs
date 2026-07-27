@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_receiving_active_scope_is_placed_in_transport_transaction
 {
     [Test]
-    public async Task Run()
+    public async Task Should_place_active_scope_in_transport_transaction()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"]);

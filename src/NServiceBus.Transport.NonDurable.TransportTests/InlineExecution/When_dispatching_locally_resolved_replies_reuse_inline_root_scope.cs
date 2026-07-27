@@ -13,7 +13,7 @@ using NUnit.Framework;
 public class When_dispatching_locally_resolved_replies_reuse_inline_root_scope
 {
     [Test]
-    public async Task Run()
+    public async Task Should_reuse_inline_root_scope_for_locally_resolved_replies()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input", "input-secondary"]);

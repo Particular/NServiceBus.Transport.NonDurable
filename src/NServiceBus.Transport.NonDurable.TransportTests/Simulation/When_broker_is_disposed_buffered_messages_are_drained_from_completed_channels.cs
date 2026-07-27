@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_broker_is_disposed_buffered_messages_are_drained_from_completed_channels
 {
     [Test]
-    public async Task Run()
+    public async Task Should_drain_buffered_messages_from_completed_channels_when_broker_is_disposed()
     {
         var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"]);

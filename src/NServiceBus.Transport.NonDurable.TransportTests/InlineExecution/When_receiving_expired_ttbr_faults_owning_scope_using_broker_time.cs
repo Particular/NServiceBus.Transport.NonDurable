@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_receiving_expired_ttbr_faults_owning_scope_using_broker_time
 {
     [Test]
-    public async Task Run()
+    public async Task Should_fault_owning_scope_when_ttbr_expires_using_broker_time()
     {
         var fakeTime = CreateFakeTimeProvider();
         await using var broker = new NonDurableBroker(new NonDurableBrokerOptions

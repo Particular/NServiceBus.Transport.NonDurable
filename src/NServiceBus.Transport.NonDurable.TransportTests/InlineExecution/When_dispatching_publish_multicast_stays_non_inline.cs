@@ -10,7 +10,7 @@ using NUnit.Framework;
 public class When_dispatching_publish_multicast_stays_non_inline
 {
     [Test]
-    public async Task Run()
+    public async Task Should_stay_non_inline_for_publish_multicast()
     {
         await using var broker = new NonDurableBroker();
         broker.Subscribe("input", typeof(MyEvent).FullName!);

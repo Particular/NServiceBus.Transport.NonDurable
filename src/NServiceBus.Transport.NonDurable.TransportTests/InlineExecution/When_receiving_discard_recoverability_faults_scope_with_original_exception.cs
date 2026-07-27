@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_receiving_discard_recoverability_faults_scope_with_original_exception
 {
     [Test]
-    public async Task Run()
+    public async Task Should_fault_scope_with_original_exception_on_discard_recoverability()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"]);

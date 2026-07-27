@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_receiving_graceful_shutdown_drains_buffered_messages_before_stopping
 {
     [Test]
-    public async Task Run()
+    public async Task Should_drain_buffered_messages_before_stopping_during_graceful_shutdown()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"]);
