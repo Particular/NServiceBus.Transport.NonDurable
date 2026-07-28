@@ -13,7 +13,7 @@ using NUnit.Framework;
 public class When_dispatching_ordinary_in_pipeline_immediate_local_sends_reuse_inline_scope
 {
     [Test]
-    public async Task Run()
+    public async Task Should_reuse_inline_scope_for_ordinary_in_pipeline_immediate_local_sends()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input", "input-secondary"]);

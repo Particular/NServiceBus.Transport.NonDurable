@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_receiving_immediate_recoverability_retry_keeps_same_scope_pending
 {
     [Test]
-    public async Task Run()
+    public async Task Should_keep_same_scope_pending_during_immediate_recoverability_retry()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"]);

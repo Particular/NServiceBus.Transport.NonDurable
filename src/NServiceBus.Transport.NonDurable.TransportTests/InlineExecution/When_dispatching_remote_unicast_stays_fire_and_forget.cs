@@ -10,7 +10,7 @@ using NUnit.Framework;
 public class When_dispatching_remote_unicast_stays_fire_and_forget
 {
     [Test]
-    public async Task Run()
+    public async Task Should_stay_fire_and_forget_for_remote_unicast()
     {
         await using var broker = new NonDurableBroker();
         var dispatcher = await CreateDispatcher(broker, ["input"]);

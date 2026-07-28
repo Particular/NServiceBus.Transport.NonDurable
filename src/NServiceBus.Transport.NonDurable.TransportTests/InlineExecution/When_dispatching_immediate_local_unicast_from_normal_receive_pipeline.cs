@@ -13,7 +13,7 @@ using NUnit.Framework;
 public class When_dispatching_immediate_local_unicast_from_normal_receive_pipeline
 {
     [Test]
-    public async Task Run()
+    public async Task Should_not_create_inline_scope_for_immediate_local_unicast_from_normal_receive_pipeline()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input", "input-secondary"]);

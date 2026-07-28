@@ -13,7 +13,7 @@ using NUnit.Framework;
 public class When_dispatching_nested_inline_reentrant_dispatch_returns_child_processing_task
 {
     [Test]
-    public async Task Run()
+    public async Task Should_return_child_processing_task_for_nested_inline_reentrant_dispatch()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"]);

@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_receiving_recoverability_sees_inline_dispatch_context_without_receive_transaction
 {
     [Test]
-    public async Task Run()
+    public async Task Should_see_inline_dispatch_context_during_recoverability_without_receive_transaction()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"], TransportTransactionMode.None);

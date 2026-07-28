@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_dispatching_user_requested_delayed_local_dispatch_from_receive_pipeline_is_not_inline
 {
     [Test]
-    public async Task Run()
+    public async Task Should_not_be_inline_for_user_requested_delayed_local_dispatch_from_receive_pipeline()
     {
         await using var broker = new NonDurableBroker();
         var dispatcher = await CreateDispatcher(broker, ["input"]);

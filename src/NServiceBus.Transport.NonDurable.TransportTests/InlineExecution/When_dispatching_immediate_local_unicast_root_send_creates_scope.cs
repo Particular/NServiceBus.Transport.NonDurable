@@ -10,7 +10,7 @@ using NUnit.Framework;
 public class When_dispatching_immediate_local_unicast_root_send_creates_scope
 {
     [Test]
-    public async Task Run()
+    public async Task Should_create_scope_for_immediate_local_unicast_root_send()
     {
         await using var broker = new NonDurableBroker();
         var dispatcher = await CreateDispatcher(broker, ["input"]);

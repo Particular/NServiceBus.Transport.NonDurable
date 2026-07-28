@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_receiving_final_move_to_error_recoverability_faults_scope
 {
     [Test]
-    public async Task Run()
+    public async Task Should_fault_scope_on_final_move_to_error_recoverability()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"]);

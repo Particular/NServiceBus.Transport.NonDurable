@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_receiving_hard_shutdown_re_registers_inflight_scope
 {
     [Test]
-    public async Task Run()
+    public async Task Should_re_register_inflight_scope_on_hard_shutdown()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"]);

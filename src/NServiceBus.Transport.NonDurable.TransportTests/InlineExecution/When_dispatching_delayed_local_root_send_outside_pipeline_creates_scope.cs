@@ -11,7 +11,7 @@ using NUnit.Framework;
 public class When_dispatching_delayed_local_root_send_outside_pipeline_creates_scope
 {
     [Test]
-    public async Task Run()
+    public async Task Should_create_scope_for_delayed_local_root_send_outside_pipeline()
     {
         await using var broker = new NonDurableBroker();
         var dispatcher = await CreateDispatcher(broker, ["input"]);

@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_receiving_graceful_shutdown_preserves_delayed_scopes_for_restart
 {
     [Test]
-    public async Task Run()
+    public async Task Should_preserve_delayed_scopes_for_restart_during_graceful_shutdown()
     {
         var fakeTime = CreateFakeTimeProvider();
         await using var broker = new NonDurableBroker(new NonDurableBrokerOptions

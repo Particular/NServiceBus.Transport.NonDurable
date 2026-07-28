@@ -13,7 +13,7 @@ using NUnit.Framework;
 public class When_receiving_cross_pump_delayed_recoverability_preserves_scope
 {
     [Test]
-    public async Task Run()
+    public async Task Should_preserve_scope_during_cross_pump_delayed_recoverability()
     {
         var fakeTime = CreateFakeTimeProvider();
         await using var broker = new NonDurableBroker(new NonDurableBrokerOptions

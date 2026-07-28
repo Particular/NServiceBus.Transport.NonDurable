@@ -12,7 +12,7 @@ using Simulation;
 public class When_dispatching_failed_root_dispatch_preparation_faults_and_untracks_root_scope
 {
     [Test]
-    public async Task Run()
+    public async Task Should_fault_and_untrack_root_scope_when_root_dispatch_preparation_fails()
     {
         var options = new NonDurableBrokerOptions();
         options.ForQueue("input").Send.Mode = NonDurableSimulationMode.Reject;

@@ -12,7 +12,7 @@ using NUnit.Framework;
 public class When_receiving_rollback_discards_pending_operations_and_faults_root_scope
 {
     [Test]
-    public async Task Run()
+    public async Task Should_discard_pending_operations_and_fault_root_scope_on_rollback()
     {
         await using var broker = new NonDurableBroker();
         var infrastructure = await CreateInfrastructure(broker, ["input"]);
