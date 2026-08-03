@@ -164,6 +164,16 @@ public sealed class NonDurableBroker : IAsyncDisposable
                 catch (NonDurableSimulationException ex)
                 {
                     EnqueueDelayed(envelopeToDispatch, ex.TimeProvider.GetUtcNow() + ex.RetryAfter);
+                    if (ex.RetryAfter <= TimeSpan.Zero)
+                    {
+                        // A rejected simulation with no positive RetryAfter re-schedules the
+                        // message due immediately, so without yielding the pump would spin in a
+                        // synchronous tight loop and starve other work. Force a yield (no wall-clock
+                        // delay, mirroring NonDurableMessagePump's zero-delay receive retry) so the
+                        // loop can be interrupted and progress when the limiter starts granting.
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+                    }
                     continue;
                 }
 
