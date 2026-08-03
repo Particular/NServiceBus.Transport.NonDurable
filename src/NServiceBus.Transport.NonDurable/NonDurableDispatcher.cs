@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Transport;
@@ -70,6 +71,7 @@ class NonDurableDispatcher(
         return result;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "Core routing systems and message metadata registration preserve the type information necessary for the transport to resolve event types.")]
     static Type[] GetPotentialEventTypes(Type messageType) =>
         potentialEventTypesCache.GetOrAdd(messageType, static type =>
         {
