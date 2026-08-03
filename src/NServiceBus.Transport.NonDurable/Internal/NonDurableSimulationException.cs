@@ -28,7 +28,7 @@ public sealed class NonDurableSimulationException : Exception
     /// </summary>
     /// <param name="message">The message describing the simulated rejection.</param>
     /// <param name="innerException">The exception that caused the simulated rejection.</param>
-    public NonDurableSimulationException(string message, Exception innerException) : this(message, TimeSpan.FromSeconds(1), TimeProvider.System)
+    public NonDurableSimulationException(string message, Exception innerException) : this(message, TimeSpan.FromSeconds(1), TimeProvider.System, innerException)
     {
     }
 
