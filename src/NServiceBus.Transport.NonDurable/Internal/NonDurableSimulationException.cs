@@ -17,13 +17,13 @@ public sealed class NonDurableSimulationException : Exception
     {
     }
 
-    public NonDurableSimulationException(string message, TimeSpan retryAfter, TimeProvider timeProvider) : base(message)
+    internal NonDurableSimulationException(string message, TimeSpan retryAfter, TimeProvider timeProvider) : base(message)
     {
         RetryAfter = retryAfter;
         TimeProvider = timeProvider;
     }
 
-    public NonDurableSimulationException(string message, TimeSpan retryAfter, TimeProvider timeProvider, Exception innerException) : base(message, innerException)
+    internal NonDurableSimulationException(string message, TimeSpan retryAfter, TimeProvider timeProvider, Exception innerException) : base(message, innerException)
     {
         RetryAfter = retryAfter;
         TimeProvider = timeProvider;

@@ -12,7 +12,6 @@ namespace NServiceBus
     {
         public NonDurableBroker(NServiceBus.NonDurableBrokerOptions? options = null) { }
         public System.Threading.Tasks.ValueTask DisposeAsync() { }
-        public void Unsubscribe(string publisherAddress, string topic) { }
     }
     public sealed class NonDurableBrokerOptions
     {
@@ -45,8 +44,6 @@ namespace NServiceBus
         public NonDurableSimulationException() { }
         public NonDurableSimulationException(string message) { }
         public NonDurableSimulationException(string message, System.Exception innerException) { }
-        public NonDurableSimulationException(string message, System.TimeSpan retryAfter, System.TimeProvider timeProvider) { }
-        public NonDurableSimulationException(string message, System.TimeSpan retryAfter, System.TimeProvider timeProvider, System.Exception innerException) { }
         public System.TimeSpan RetryAfter { get; }
     }
     public enum NonDurableSimulationMode
@@ -63,7 +60,7 @@ namespace NServiceBus
         public System.Func<System.TimeProvider, System.Threading.RateLimiting.RateLimiter>? RateLimiterFactory { get; set; }
         public System.TimeProvider? TimeProvider { get; set; }
     }
-    public class NonDurableTransport : NServiceBus.Transport.TransportDefinition
+    public sealed class NonDurableTransport : NServiceBus.Transport.TransportDefinition
     {
         public NonDurableTransport(NServiceBus.NonDurableTransportOptions? options = null) { }
         public override System.Collections.Generic.IReadOnlyCollection<NServiceBus.TransportTransactionMode> GetSupportedTransactionModes() { }
