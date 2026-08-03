@@ -220,9 +220,10 @@ public class When_simulating_receive_reject
     public async Task Should_retry_when_simulated_time_advances()
     {
         var fakeTime = new FakeTimeProvider(new DateTimeOffset(2026, 03, 28, 12, 0, 0, TimeSpan.Zero));
+        var retryDelayRegistered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var broker = new NonDurableBroker(new NonDurableBrokerOptions
         {
-            TimeProvider = fakeTime,
+            TimeProvider = new SignalingTimeProvider(fakeTime, retryDelayRegistered),
             Receive =
             {
                 Mode = NonDurableSimulationMode.Reject,
@@ -261,13 +262,36 @@ public class When_simulating_receive_reject
         await firstReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.That(Volatile.Read(ref receivedCount), Is.EqualTo(1));
 
-        // Wait for the pump to attempt the second message and enter the retry delay
-        await Task.Delay(TimeSpan.FromMilliseconds(100));
+        // Deterministically wait until the receive pump has registered its virtual-time retry delay. The
+        // wrapper signals from CreateTimer only after FakeTimeProvider has accepted the timer, so advancing
+        // the clock now cannot race timer registration.
+        await retryDelayRegistered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         fakeTime.Advance(TimeSpan.FromSeconds(5));
         await secondReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.That(Volatile.Read(ref receivedCount), Is.EqualTo(2));
 
         await receiver.StopReceive();
+    }
+
+    // Test-only TimeProvider that delegates to a FakeTimeProvider and signals once when a timer is
+    // created. The receive pump registers its retry delay through this provider's CreateTimer, letting
+    // the test deterministically know the virtual-time delay is in place before advancing the clock.
+    sealed class SignalingTimeProvider(TimeProvider inner, TaskCompletionSource timerCreated) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => inner.GetUtcNow();
+
+        public override long GetTimestamp() => inner.GetTimestamp();
+
+        public override long TimestampFrequency => inner.TimestampFrequency;
+
+        public override ITimer CreateTimer(TimerCallback callback, object state, TimeSpan dueTime, TimeSpan period)
+        {
+            // Register the timer on the inner provider first, then signal. This guarantees the
+            // virtual-time delay is actually in place before the test advances the clock.
+            var timer = inner.CreateTimer(callback, state, dueTime, period);
+            timerCreated.TrySetResult();
+            return timer;
+        }
     }
 }

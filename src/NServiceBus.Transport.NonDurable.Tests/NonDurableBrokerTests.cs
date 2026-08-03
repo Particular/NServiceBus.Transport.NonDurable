@@ -4,6 +4,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.RateLimiting;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -382,7 +383,7 @@ public class NonDurableBrokerTests
     }
 
     [Test]
-    public async Task Broker_stop_while_delayed_message_becomes_due_should_not_lose_or_duplicate_message()
+    public async Task Broker_stop_after_delayed_message_becomes_due_should_not_lose_or_duplicate_message()
     {
         var timeProvider = new FakeTimeProvider();
         var broker = new NonDurableBroker(new NonDurableBrokerOptions
@@ -402,16 +403,15 @@ public class NonDurableBrokerTests
         broker.EnqueueDelayed(envelope, timeProvider.GetUtcNow().AddMilliseconds(200));
         await broker.StartPump(cts.Token);
 
-        // Make the message become due while the pump is running. The delayed pump dequeues the due
-        // message and delivers it to the queue via a non-cancellable enqueue, so delivery is exactly-once
-        // even when shutdown is requested concurrently. WaitToRead deterministically observes the in-flight
-        // delivery (the message is committed to the queue) without consuming it.
+        // Advance virtual time so the message becomes due and the pump delivers it to the queue.
+        // WaitToRead deterministically observes that delivery (the message is committed to the queue)
+        // without consuming it.
         timeProvider.Advance(TimeSpan.FromMilliseconds(200));
         var queue = broker.GetOrCreateQueue("q");
         await queue.WaitToRead(cts.Token);
 
-        // Stop the pump while the delivered message is pending in the queue. Shutdown must neither lose
-        // nor duplicate the in-flight due message.
+        // The message is already delivered and pending in the queue; stopping afterwards must neither
+        // lose nor duplicate the due message. Shutdown completes queues, leaving the message available.
         await broker.DisposeAsync();
 
         Assert.That(queue.Count, Is.EqualTo(1));
@@ -578,6 +578,99 @@ public class NonDurableBrokerTests
         await constructorBroker.DisposeAsync();
     }
 
+    [Test]
+    public async Task Broker_snapshots_broker_level_rate_limit_on_construction()
+    {
+        var options = new NonDurableBrokerOptions
+        {
+            Send =
+            {
+                Mode = NonDurableSimulationMode.Reject,
+                RateLimit = new NonDurableRateLimitOptions { PermitLimit = 1, Window = TimeSpan.FromSeconds(30) }
+            }
+        };
+        await using var broker = new NonDurableBroker(options);
+
+        // First send acquires the single configured permit.
+        await broker.SimulateSendAsync("q", CancellationToken.None);
+
+        // Mutating the options after construction must not affect the broker: the snapshot still has
+        // PermitLimit = 1, so the second send is rejected even though the mutated config allows 100.
+        options.Send.RateLimit = new NonDurableRateLimitOptions { PermitLimit = 100, Window = TimeSpan.FromSeconds(30) };
+
+        Assert.ThrowsAsync<NonDurableSimulationException>(() => broker.SimulateSendAsync("q", CancellationToken.None));
+    }
+
+    [Test]
+    public async Task Broker_snapshots_queue_options_on_construction()
+    {
+        var originalProvider = new FakeTimeProvider();
+        var options = new NonDurableBrokerOptions();
+        TimeProvider capturedProvider = null;
+
+        options.ForQueue("q").TimeProvider = originalProvider;
+        options.ForQueue("q").Send.RateLimiterFactory = timeProvider =>
+        {
+            capturedProvider = timeProvider;
+            return new GrantingRateLimiter();
+        };
+        await using var broker = new NonDurableBroker(options);
+
+        // Mutate the queue's TimeProvider and factory after construction; the broker must keep using
+        // the snapshotted values (the mutated factory throws if it were ever invoked).
+        options.ForQueue("q").TimeProvider = new FakeTimeProvider();
+        options.ForQueue("q").Send.RateLimiterFactory = _ => throw new InvalidOperationException("mutated factory must not be used");
+
+        await broker.SimulateSendAsync("q", CancellationToken.None);
+
+        Assert.That(capturedProvider, Is.SameAs(originalProvider));
+    }
+
+    [Test]
+    public async Task Broker_ignores_queues_added_after_construction()
+    {
+        var brokerProvider = new FakeTimeProvider();
+        var options = new NonDurableBrokerOptions { TimeProvider = brokerProvider };
+        TimeProvider capturedProvider = null;
+        options.Send.RateLimiterFactory = timeProvider =>
+        {
+            capturedProvider = timeProvider;
+            return new GrantingRateLimiter();
+        };
+        await using var broker = new NonDurableBroker(options);
+
+        // A queue added via ForQueue after construction is not part of the broker's snapshot, so its
+        // TimeProvider override must be ignored and the broker-level provider used instead.
+        options.ForQueue("late").TimeProvider = new FakeTimeProvider();
+
+        await broker.SimulateSendAsync("late", CancellationToken.None);
+
+        Assert.That(capturedProvider, Is.SameAs(brokerProvider));
+    }
+
+    [Test]
+    public void Broker_rejects_non_positive_rate_limit_window()
+    {
+        var options = new NonDurableBrokerOptions
+        {
+            Send =
+            {
+                RateLimit = new NonDurableRateLimitOptions { PermitLimit = 0, Window = TimeSpan.Zero }
+            }
+        };
+
+        Assert.Throws<ArgumentException>(() => new NonDurableBroker(options));
+    }
+
+    [Test]
+    public void Broker_rejects_non_positive_queue_rate_limit_window()
+    {
+        var options = new NonDurableBrokerOptions();
+        options.ForQueue("q").Receive.RateLimit = new NonDurableRateLimitOptions { PermitLimit = 1, Window = TimeSpan.FromSeconds(-1) };
+
+        Assert.Throws<ArgumentException>(() => new NonDurableBroker(options));
+    }
+
     static async Task AllowBackgroundPumpToStart(CancellationToken cancellationToken)
     {
         for (var i = 0; i < 100; i++)
@@ -611,5 +704,36 @@ public class NonDurableBrokerTests
         public override byte[] Rent(int minimumLength) => new byte[minimumLength];
 
         public override void Return(byte[] array, bool clearArray = false) => Returned++;
+    }
+
+    sealed class GrantingRateLimiter : RateLimiter
+    {
+        public override TimeSpan? IdleDuration => null;
+
+        public override RateLimiterStatistics GetStatistics() => null;
+
+        protected override ValueTask<RateLimitLease> AcquireAsyncCore(int permitCount, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult<RateLimitLease>(GrantedLease.Instance);
+
+        protected override RateLimitLease AttemptAcquireCore(int permitCount) => GrantedLease.Instance;
+
+        protected override void Dispose(bool disposing)
+        {
+        }
+
+        sealed class GrantedLease : RateLimitLease
+        {
+            public static GrantedLease Instance { get; } = new();
+
+            public override bool IsAcquired => true;
+
+            public override IEnumerable<string> MetadataNames => [];
+
+            public override bool TryGetMetadata(string metadataName, out object metadata)
+            {
+                metadata = null;
+                return false;
+            }
+        }
     }
 }
