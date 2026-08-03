@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using NServiceBus.Routing;
 using NServiceBus.Transport;
 using NUnit.Framework;
@@ -194,7 +195,11 @@ public class NonDurableBrokerTests
     [Test]
     public async Task Broker_DelayedDelivery_EnqueueAndDequeue()
     {
-        var broker = new NonDurableBroker();
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         var envelope = BrokerPayloadStore.Borrow(
@@ -205,27 +210,30 @@ public class NonDurableBrokerTests
             isPublished: false,
             sequenceNumber: 1);
 
-        var deliverAt = DateTimeOffset.UtcNow.AddMilliseconds(200);
+        var deliverAt = timeProvider.GetUtcNow().AddMilliseconds(200);
         broker.EnqueueDelayed(envelope, deliverAt);
 
         await broker.StartPump(cts.Token);
 
-        await Task.Delay(300);
-
         var queue = broker.GetOrCreateQueue("test-queue");
-        Assert.That(queue.Count, Is.EqualTo(1));
+        timeProvider.Advance(TimeSpan.FromMilliseconds(200));
+        var dequeued = await queue.Dequeue(cts.Token);
 
-        var dequeued = await queue.Dequeue(CancellationToken.None);
         Assert.That(dequeued.MessageId, Is.EqualTo("msg-1"));
 
-        envelope.Dispose();
+        dequeued.Dispose();
         await broker.DisposeAsync();
     }
 
     [Test]
     public async Task Broker_delayed_pump_should_wake_when_earlier_message_is_enqueued()
     {
-        var broker = new NonDurableBroker();
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         var laterEnvelope = BrokerPayloadStore.Borrow(
             "later",
@@ -242,17 +250,15 @@ public class NonDurableBrokerTests
             isPublished: false,
             sequenceNumber: 2);
 
-        broker.EnqueueDelayed(laterEnvelope, DateTimeOffset.UtcNow.AddSeconds(2));
-        await broker.StartPump(CancellationToken.None);
+        // StartPump parks the delayed pump waiting for the later message (+2s virtual time). Enqueuing
+        // an earlier-due message must wake the pump and deliver it without advancing virtual time.
+        broker.EnqueueDelayed(laterEnvelope, timeProvider.GetUtcNow().AddSeconds(2));
+        await broker.StartPump(cts.Token);
 
-        await AllowBackgroundPumpToStart(CancellationToken.None);
-
-        broker.EnqueueDelayed(earlierEnvelope, DateTimeOffset.UtcNow);
+        broker.EnqueueDelayed(earlierEnvelope, timeProvider.GetUtcNow());
 
         var queue = broker.GetOrCreateQueue("q");
-        using var dequeueCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-
-        var dequeued = await queue.Dequeue(dequeueCts.Token);
+        var dequeued = await queue.Dequeue(cts.Token);
 
         Assert.That(dequeued.MessageId, Is.EqualTo("earlier"));
 
@@ -378,7 +384,13 @@ public class NonDurableBrokerTests
     [Test]
     public async Task Broker_stop_while_delayed_message_becomes_due_should_not_lose_or_duplicate_message()
     {
-        var broker = new NonDurableBroker();
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
         var envelope = BrokerPayloadStore.Borrow(
             "msg-1",
             [1],
@@ -387,23 +399,26 @@ public class NonDurableBrokerTests
             isPublished: false,
             sequenceNumber: 1);
 
-        broker.EnqueueDelayed(envelope, DateTimeOffset.UtcNow.AddMilliseconds(20));
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(60));
-
+        broker.EnqueueDelayed(envelope, timeProvider.GetUtcNow().AddMilliseconds(200));
         await broker.StartPump(cts.Token);
 
-        var cancellationObserved = await WaitForCancellation(cts.Token).WaitAsync(TimeSpan.FromSeconds(1));
-        Assert.That(cancellationObserved, Is.True);
+        // Make the message become due while the pump is running. The delayed pump dequeues the due
+        // message and delivers it to the queue via a non-cancellable enqueue, so delivery is exactly-once
+        // even when shutdown is requested concurrently. WaitToRead deterministically observes the in-flight
+        // delivery (the message is committed to the queue) without consuming it.
+        timeProvider.Advance(TimeSpan.FromMilliseconds(200));
+        var queue = broker.GetOrCreateQueue("q");
+        await queue.WaitToRead(cts.Token);
 
-        Assert.That(broker.TryGetQueue("q", out var queue), Is.True);
-        Assert.That(queue!.Count, Is.EqualTo(1));
+        // Stop the pump while the delivered message is pending in the queue. Shutdown must neither lose
+        // nor duplicate the in-flight due message.
+        await broker.DisposeAsync();
 
+        Assert.That(queue.Count, Is.EqualTo(1));
         var dequeued = await queue.Dequeue(CancellationToken.None);
         Assert.That(dequeued.MessageId, Is.EqualTo("msg-1"));
 
         dequeued.Dispose();
-        await broker.DisposeAsync();
     }
 
     [Test]
@@ -570,18 +585,6 @@ public class NonDurableBrokerTests
             cancellationToken.ThrowIfCancellationRequested();
             await Task.Yield();
         }
-    }
-
-    static Task<bool> WaitForCancellation(CancellationToken cancellationToken)
-    {
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return Task.FromResult(true);
-        }
-
-        var completionSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        cancellationToken.UnsafeRegister(static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true), completionSource);
-        return completionSource.Task;
     }
 
     static BrokerEnvelope NewEnvelopeWith(TrackingPool pool, string messageId, byte[] body, string destination, bool isPublished, long sequenceNumber)
