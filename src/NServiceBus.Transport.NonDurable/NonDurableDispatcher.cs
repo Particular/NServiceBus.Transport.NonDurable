@@ -25,6 +25,16 @@ class NonDurableDispatcher(
 
     Task DispatchMulticast(List<MulticastTransportOperation> operations, TransportTransaction transaction, CancellationToken cancellationToken)
     {
+        if (operations.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (operations.Count == 1)
+        {
+            return DispatchMulticastOperation(operations[0], transaction, cancellationToken);
+        }
+
         var tasks = new List<Task>(operations.Count);
 
         foreach (var transportOperation in operations)
@@ -87,6 +97,16 @@ class NonDurableDispatcher(
 
     Task DispatchUnicast(List<UnicastTransportOperation> operations, TransportTransaction transaction, CancellationToken cancellationToken)
     {
+        if (operations.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (operations.Count == 1)
+        {
+            return DispatchUnicastOperation(operations[0], transaction, cancellationToken);
+        }
+
         var tasks = new List<Task>(operations.Count);
 
         foreach (var operation in operations)
