@@ -139,6 +139,14 @@ sealed class InlineExecutionRunner(
 
             inlineState?.Scope.CompleteDispatchSuccess();
             NonDurableTransportTracing.MarkSuccess(transportActivity);
+
+            // On successful processing the received envelope is fully consumed: return its
+            // ArrayPool buffer exactly once. The retry, deferred-retry, terminal-failure and
+            // hard-stop ownership paths below dispose (or transfer) the envelope themselves, so
+            // the success path must not dispose twice. The retry clone (WithDeliveryAttempt)
+            // shares this buffer, so the RetryRequired branch transfers ownership and returns
+            // without disposing here.
+            envelope.Dispose();
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !processingCancellationToken.IsCancellationRequested)
         {

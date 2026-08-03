@@ -8,11 +8,21 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.RateLimiting;
 
+/// <summary>
+/// Provides the shared in-memory broker used by the non-durable transport.
+/// </summary>
+/// <remarks>
+/// Messages exist only in memory and are lost when the broker is disposed or the process terminates.
+/// </remarks>
 public sealed class NonDurableBroker : IAsyncDisposable
 {
+    /// <summary>
+    /// Creates a broker that clones the supplied options at construction time.
+    /// </summary>
+    /// <param name="options">Optional configuration. Effective values are captured now; later mutation affects only brokers constructed afterwards.</param>
     public NonDurableBroker(NonDurableBrokerOptions? options = null)
     {
-        this.options = options ?? new NonDurableBrokerOptions();
+        this.options = (options ?? new NonDurableBrokerOptions()).Clone();
         ValidateOptions(this.options);
         timeProvider = this.options.TimeProvider ?? TimeProvider.System;
     }
@@ -49,7 +59,7 @@ public sealed class NonDurableBroker : IAsyncDisposable
             },
             publisherAddress);
 
-    public void Unsubscribe(string publisherAddress, string topic) =>
+    internal void Unsubscribe(string publisherAddress, string topic) =>
         subscriptions.AddOrUpdate(
             topic,
             static (_, _) => new Lazy<string[]>([]),
@@ -164,6 +174,16 @@ public sealed class NonDurableBroker : IAsyncDisposable
                 catch (NonDurableSimulationException ex)
                 {
                     EnqueueDelayed(envelopeToDispatch, ex.TimeProvider.GetUtcNow() + ex.RetryAfter);
+                    if (ex.RetryAfter <= TimeSpan.Zero)
+                    {
+                        // A rejected simulation with no positive RetryAfter re-schedules the
+                        // message due immediately, so without yielding the pump would spin in a
+                        // synchronous tight loop and starve other work. Force a yield (no wall-clock
+                        // delay, mirroring NonDurableMessagePump's zero-delay receive retry) so the
+                        // loop can be interrupted and progress when the limiter starts granting.
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+                    }
                     continue;
                 }
 
@@ -362,6 +382,13 @@ public sealed class NonDurableBroker : IAsyncDisposable
         if (configuredLimiterSources > 1)
         {
             throw new ArgumentException($"Simulation node '{nodeName}' configures multiple limiter sources. Only one of RateLimit, RateLimiter, or RateLimiterFactory may be set.");
+        }
+
+        // PermitLimit of 0 is the supported pause mechanism, but a fixed window must be strictly
+        // positive: a non-positive window could otherwise synchronously loop forever while pausing.
+        if (options.RateLimit is { Window: var window } && window <= TimeSpan.Zero)
+        {
+            throw new ArgumentException($"Simulation node '{nodeName}' must have a strictly positive Window, but was '{window}'.");
         }
     }
 

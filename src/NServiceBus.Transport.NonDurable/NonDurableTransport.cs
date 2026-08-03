@@ -10,7 +10,7 @@ using Transport;
 /// <summary>
 /// Non-durable transport for testing and development.
 /// </summary>
-public class NonDurableTransport : TransportDefinition
+public sealed class NonDurableTransport : TransportDefinition
 {
     /// <summary>
     /// Creates a new instance of the non-durable transport.

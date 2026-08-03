@@ -4,8 +4,10 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.RateLimiting;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using NServiceBus.Routing;
 using NServiceBus.Transport;
 using NUnit.Framework;
@@ -194,7 +196,11 @@ public class NonDurableBrokerTests
     [Test]
     public async Task Broker_DelayedDelivery_EnqueueAndDequeue()
     {
-        var broker = new NonDurableBroker();
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         var envelope = BrokerPayloadStore.Borrow(
@@ -205,27 +211,30 @@ public class NonDurableBrokerTests
             isPublished: false,
             sequenceNumber: 1);
 
-        var deliverAt = DateTimeOffset.UtcNow.AddMilliseconds(200);
+        var deliverAt = timeProvider.GetUtcNow().AddMilliseconds(200);
         broker.EnqueueDelayed(envelope, deliverAt);
 
         await broker.StartPump(cts.Token);
 
-        await Task.Delay(300);
-
         var queue = broker.GetOrCreateQueue("test-queue");
-        Assert.That(queue.Count, Is.EqualTo(1));
+        timeProvider.Advance(TimeSpan.FromMilliseconds(200));
+        var dequeued = await queue.Dequeue(cts.Token);
 
-        var dequeued = await queue.Dequeue(CancellationToken.None);
         Assert.That(dequeued.MessageId, Is.EqualTo("msg-1"));
 
-        envelope.Dispose();
+        dequeued.Dispose();
         await broker.DisposeAsync();
     }
 
     [Test]
     public async Task Broker_delayed_pump_should_wake_when_earlier_message_is_enqueued()
     {
-        var broker = new NonDurableBroker();
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         var laterEnvelope = BrokerPayloadStore.Borrow(
             "later",
@@ -242,17 +251,15 @@ public class NonDurableBrokerTests
             isPublished: false,
             sequenceNumber: 2);
 
-        broker.EnqueueDelayed(laterEnvelope, DateTimeOffset.UtcNow.AddSeconds(2));
-        await broker.StartPump(CancellationToken.None);
+        // StartPump parks the delayed pump waiting for the later message (+2s virtual time). Enqueuing
+        // an earlier-due message must wake the pump and deliver it without advancing virtual time.
+        broker.EnqueueDelayed(laterEnvelope, timeProvider.GetUtcNow().AddSeconds(2));
+        await broker.StartPump(cts.Token);
 
-        await AllowBackgroundPumpToStart(CancellationToken.None);
-
-        broker.EnqueueDelayed(earlierEnvelope, DateTimeOffset.UtcNow);
+        broker.EnqueueDelayed(earlierEnvelope, timeProvider.GetUtcNow());
 
         var queue = broker.GetOrCreateQueue("q");
-        using var dequeueCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-
-        var dequeued = await queue.Dequeue(dequeueCts.Token);
+        var dequeued = await queue.Dequeue(cts.Token);
 
         Assert.That(dequeued.MessageId, Is.EqualTo("earlier"));
 
@@ -376,9 +383,15 @@ public class NonDurableBrokerTests
     }
 
     [Test]
-    public async Task Broker_stop_while_delayed_message_becomes_due_should_not_lose_or_duplicate_message()
+    public async Task Broker_stop_after_delayed_message_becomes_due_should_not_lose_or_duplicate_message()
     {
-        var broker = new NonDurableBroker();
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
         var envelope = BrokerPayloadStore.Borrow(
             "msg-1",
             [1],
@@ -387,23 +400,25 @@ public class NonDurableBrokerTests
             isPublished: false,
             sequenceNumber: 1);
 
-        broker.EnqueueDelayed(envelope, DateTimeOffset.UtcNow.AddMilliseconds(20));
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(60));
-
+        broker.EnqueueDelayed(envelope, timeProvider.GetUtcNow().AddMilliseconds(200));
         await broker.StartPump(cts.Token);
 
-        var cancellationObserved = await WaitForCancellation(cts.Token).WaitAsync(TimeSpan.FromSeconds(1));
-        Assert.That(cancellationObserved, Is.True);
+        // Advance virtual time so the message becomes due and the pump delivers it to the queue.
+        // WaitToRead deterministically observes that delivery (the message is committed to the queue)
+        // without consuming it.
+        timeProvider.Advance(TimeSpan.FromMilliseconds(200));
+        var queue = broker.GetOrCreateQueue("q");
+        await queue.WaitToRead(cts.Token);
 
-        Assert.That(broker.TryGetQueue("q", out var queue), Is.True);
-        Assert.That(queue!.Count, Is.EqualTo(1));
+        // The message is already delivered and pending in the queue; stopping afterwards must neither
+        // lose nor duplicate the due message. Shutdown completes queues, leaving the message available.
+        await broker.DisposeAsync();
 
+        Assert.That(queue.Count, Is.EqualTo(1));
         var dequeued = await queue.Dequeue(CancellationToken.None);
         Assert.That(dequeued.MessageId, Is.EqualTo("msg-1"));
 
         dequeued.Dispose();
-        await broker.DisposeAsync();
     }
 
     [Test]
@@ -563,6 +578,99 @@ public class NonDurableBrokerTests
         await constructorBroker.DisposeAsync();
     }
 
+    [Test]
+    public async Task Broker_snapshots_broker_level_rate_limit_on_construction()
+    {
+        var options = new NonDurableBrokerOptions
+        {
+            Send =
+            {
+                Mode = NonDurableSimulationMode.Reject,
+                RateLimit = new NonDurableRateLimitOptions { PermitLimit = 1, Window = TimeSpan.FromSeconds(30) }
+            }
+        };
+        await using var broker = new NonDurableBroker(options);
+
+        // First send acquires the single configured permit.
+        await broker.SimulateSendAsync("q", CancellationToken.None);
+
+        // Mutating the options after construction must not affect the broker: the snapshot still has
+        // PermitLimit = 1, so the second send is rejected even though the mutated config allows 100.
+        options.Send.RateLimit = new NonDurableRateLimitOptions { PermitLimit = 100, Window = TimeSpan.FromSeconds(30) };
+
+        Assert.ThrowsAsync<NonDurableSimulationException>(() => broker.SimulateSendAsync("q", CancellationToken.None));
+    }
+
+    [Test]
+    public async Task Broker_snapshots_queue_options_on_construction()
+    {
+        var originalProvider = new FakeTimeProvider();
+        var options = new NonDurableBrokerOptions();
+        TimeProvider capturedProvider = null;
+
+        options.ForQueue("q").TimeProvider = originalProvider;
+        options.ForQueue("q").Send.RateLimiterFactory = timeProvider =>
+        {
+            capturedProvider = timeProvider;
+            return new GrantingRateLimiter();
+        };
+        await using var broker = new NonDurableBroker(options);
+
+        // Mutate the queue's TimeProvider and factory after construction; the broker must keep using
+        // the snapshotted values (the mutated factory throws if it were ever invoked).
+        options.ForQueue("q").TimeProvider = new FakeTimeProvider();
+        options.ForQueue("q").Send.RateLimiterFactory = _ => throw new InvalidOperationException("mutated factory must not be used");
+
+        await broker.SimulateSendAsync("q", CancellationToken.None);
+
+        Assert.That(capturedProvider, Is.SameAs(originalProvider));
+    }
+
+    [Test]
+    public async Task Broker_ignores_queues_added_after_construction()
+    {
+        var brokerProvider = new FakeTimeProvider();
+        var options = new NonDurableBrokerOptions { TimeProvider = brokerProvider };
+        TimeProvider capturedProvider = null;
+        options.Send.RateLimiterFactory = timeProvider =>
+        {
+            capturedProvider = timeProvider;
+            return new GrantingRateLimiter();
+        };
+        await using var broker = new NonDurableBroker(options);
+
+        // A queue added via ForQueue after construction is not part of the broker's snapshot, so its
+        // TimeProvider override must be ignored and the broker-level provider used instead.
+        options.ForQueue("late").TimeProvider = new FakeTimeProvider();
+
+        await broker.SimulateSendAsync("late", CancellationToken.None);
+
+        Assert.That(capturedProvider, Is.SameAs(brokerProvider));
+    }
+
+    [Test]
+    public void Broker_rejects_non_positive_rate_limit_window()
+    {
+        var options = new NonDurableBrokerOptions
+        {
+            Send =
+            {
+                RateLimit = new NonDurableRateLimitOptions { PermitLimit = 0, Window = TimeSpan.Zero }
+            }
+        };
+
+        Assert.Throws<ArgumentException>(() => new NonDurableBroker(options));
+    }
+
+    [Test]
+    public void Broker_rejects_non_positive_queue_rate_limit_window()
+    {
+        var options = new NonDurableBrokerOptions();
+        options.ForQueue("q").Receive.RateLimit = new NonDurableRateLimitOptions { PermitLimit = 1, Window = TimeSpan.FromSeconds(-1) };
+
+        Assert.Throws<ArgumentException>(() => new NonDurableBroker(options));
+    }
+
     static async Task AllowBackgroundPumpToStart(CancellationToken cancellationToken)
     {
         for (var i = 0; i < 100; i++)
@@ -570,18 +678,6 @@ public class NonDurableBrokerTests
             cancellationToken.ThrowIfCancellationRequested();
             await Task.Yield();
         }
-    }
-
-    static Task<bool> WaitForCancellation(CancellationToken cancellationToken)
-    {
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return Task.FromResult(true);
-        }
-
-        var completionSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        cancellationToken.UnsafeRegister(static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true), completionSource);
-        return completionSource.Task;
     }
 
     static BrokerEnvelope NewEnvelopeWith(TrackingPool pool, string messageId, byte[] body, string destination, bool isPublished, long sequenceNumber)
@@ -608,5 +704,36 @@ public class NonDurableBrokerTests
         public override byte[] Rent(int minimumLength) => new byte[minimumLength];
 
         public override void Return(byte[] array, bool clearArray = false) => Returned++;
+    }
+
+    sealed class GrantingRateLimiter : RateLimiter
+    {
+        public override TimeSpan? IdleDuration => null;
+
+        public override RateLimiterStatistics GetStatistics() => null;
+
+        protected override ValueTask<RateLimitLease> AcquireAsyncCore(int permitCount, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult<RateLimitLease>(GrantedLease.Instance);
+
+        protected override RateLimitLease AttemptAcquireCore(int permitCount) => GrantedLease.Instance;
+
+        protected override void Dispose(bool disposing)
+        {
+        }
+
+        sealed class GrantedLease : RateLimitLease
+        {
+            public static GrantedLease Instance { get; } = new();
+
+            public override bool IsAcquired => true;
+
+            public override IEnumerable<string> MetadataNames => [];
+
+            public override bool TryGetMetadata(string metadataName, out object metadata)
+            {
+                metadata = null;
+                return false;
+            }
+        }
     }
 }

@@ -7,17 +7,17 @@
     <RootNamespace>NServiceBus</RootNamespace>
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>..\NServiceBus.snk</AssemblyOriginatorKeyFile>
-    <NoWarn>CS1591</NoWarn>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Label="Public dependencies">
     <PackageReference Include="NServiceBus" Version="10.2.7" />
     <PackageReference Include="System.Threading.RateLimiting" Version="10.0.10" AutomaticVersionRange="false" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Label="Private dependencies">
     <PackageReference Include="Particular.Packaging" Version="4.5.0" PrivateAssets="All" />
-  </ItemGroup>  
+  </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="NServiceBus.Transport.NonDurable.AcceptanceTests" Key="$(NServiceBusTestsKey)" />

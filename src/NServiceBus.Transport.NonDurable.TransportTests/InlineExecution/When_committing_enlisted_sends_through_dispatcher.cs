@@ -45,7 +45,9 @@ public class When_committing_enlisted_sends_through_dispatcher
             sequenceNumber: 1);
 
         await runner.Process(receivedEnvelope);
-        receivedEnvelope.Dispose();
+
+        // Runner.Process now owns and disposes the received envelope on success, so the test must
+        // NOT dispose it again (that would double-return its pooled buffer to the Shared pool).
 
         using (Assert.EnterMultipleScope())
         {

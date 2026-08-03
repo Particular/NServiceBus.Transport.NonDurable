@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Transport;
@@ -25,6 +26,16 @@ class NonDurableDispatcher(
 
     Task DispatchMulticast(List<MulticastTransportOperation> operations, TransportTransaction transaction, CancellationToken cancellationToken)
     {
+        if (operations.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (operations.Count == 1)
+        {
+            return DispatchMulticastOperation(operations[0], transaction, cancellationToken);
+        }
+
         var tasks = new List<Task>(operations.Count);
 
         foreach (var transportOperation in operations)
@@ -60,6 +71,7 @@ class NonDurableDispatcher(
         return result;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "Core routing systems and message metadata registration preserve the type information necessary for the transport to resolve event types.")]
     static Type[] GetPotentialEventTypes(Type messageType) =>
         potentialEventTypesCache.GetOrAdd(messageType, static type =>
         {
@@ -87,6 +99,16 @@ class NonDurableDispatcher(
 
     Task DispatchUnicast(List<UnicastTransportOperation> operations, TransportTransaction transaction, CancellationToken cancellationToken)
     {
+        if (operations.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (operations.Count == 1)
+        {
+            return DispatchUnicastOperation(operations[0], transaction, cancellationToken);
+        }
+
         var tasks = new List<Task>(operations.Count);
 
         foreach (var operation in operations)
