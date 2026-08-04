@@ -671,6 +671,197 @@ public class NonDurableBrokerTests
         Assert.Throws<ArgumentException>(() => new NonDurableBroker(options));
     }
 
+    [Test]
+    public async Task Broker_MarkQueueForExpirationEviction_evicts_expired_envelopes()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var now = timeProvider.GetUtcNow();
+        var expired = BrokerPayloadStore.Borrow(
+            "expired",
+            [1],
+            new Dictionary<string, string>(),
+            "audit",
+            isPublished: false,
+            sequenceNumber: 1,
+            discardAfter: now.AddSeconds(-1));
+        var future = BrokerPayloadStore.Borrow(
+            "future",
+            [2],
+            new Dictionary<string, string>(),
+            "audit",
+            isPublished: false,
+            sequenceNumber: 2,
+            discardAfter: now.AddSeconds(2));
+
+        broker.MarkQueueForExpirationEviction("audit", TimeSpan.FromSeconds(2));
+        var queue = broker.GetOrCreateQueue("audit");
+        await queue.Enqueue(expired, cts.Token);
+        await queue.Enqueue(future, cts.Token);
+
+        await broker.StartPump(cts.Token);
+        timeProvider.Advance(TimeSpan.FromSeconds(2));
+
+        // The sweep continuation runs on the threadpool after the FakeTimeProvider Advance, so poll.
+        while (queue.Count > 0)
+        {
+            cts.Token.ThrowIfCancellationRequested();
+            await Task.Delay(10, cts.Token);
+        }
+
+        Assert.That(queue.Count, Is.EqualTo(0));
+        await broker.DisposeAsync();
+    }
+
+    [Test]
+    public async Task Broker_MarkQueueForExpirationEviction_keeps_non_expired_envelopes()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var now = timeProvider.GetUtcNow();
+        var envelope = BrokerPayloadStore.Borrow(
+            "future",
+            [1],
+            new Dictionary<string, string>(),
+            "audit",
+            isPublished: false,
+            sequenceNumber: 1,
+            discardAfter: now.AddSeconds(2));
+
+        broker.MarkQueueForExpirationEviction("audit", TimeSpan.FromSeconds(2));
+        var queue = broker.GetOrCreateQueue("audit");
+        await queue.Enqueue(envelope, cts.Token);
+
+        await broker.StartPump(cts.Token);
+        timeProvider.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.That(queue.Count, Is.EqualTo(1));
+        await broker.DisposeAsync();
+    }
+
+    [Test]
+    public async Task Broker_MarkQueueForExpirationEviction_without_expiration_does_not_evict()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var now = timeProvider.GetUtcNow();
+        var envelope = BrokerPayloadStore.Borrow(
+            "expired",
+            [1],
+            new Dictionary<string, string>(),
+            "audit",
+            isPublished: false,
+            sequenceNumber: 1,
+            discardAfter: now.AddSeconds(-1));
+
+        broker.MarkQueueForExpirationEviction("audit", null);
+        var queue = broker.GetOrCreateQueue("audit");
+        await queue.Enqueue(envelope, cts.Token);
+
+        await broker.StartPump(cts.Token);
+        timeProvider.Advance(TimeSpan.FromSeconds(5));
+
+        // No expiration configured => no eviction thread => the expired envelope is retained.
+        Assert.That(queue.Count, Is.EqualTo(1));
+        await broker.DisposeAsync();
+    }
+
+    [Test]
+    public async Task Broker_MarkQueueForExpirationEviction_starts_no_thread_when_no_expiration()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        broker.MarkQueueForExpirationEviction("audit", null);
+        await broker.StartPump(cts.Token);
+
+        Assert.That(broker.HasEvictionPump("audit"), Is.False);
+        await broker.DisposeAsync();
+    }
+
+    [Test]
+    public async Task Broker_dispose_completes_gracefully_with_running_eviction_pump_and_survivors()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
+
+        var now = timeProvider.GetUtcNow();
+        broker.MarkQueueForExpirationEviction("audit", TimeSpan.FromSeconds(2));
+        var queue = broker.GetOrCreateQueue("audit");
+
+        // Non-expired survivors that the pump keeps re-enqueuing while it is alive.
+        await queue.Enqueue(BrokerPayloadStore.Borrow("s1", [1], new Dictionary<string, string>(), "audit", false, 1, discardAfter: now.AddSeconds(30)), CancellationToken.None);
+        await queue.Enqueue(BrokerPayloadStore.Borrow("s2", [2], new Dictionary<string, string>(), "audit", false, 2, discardAfter: now.AddSeconds(30)), CancellationToken.None);
+
+        // The pump is parked on its first tick (+2s virtual time, never advanced). Disposal cancels
+        // it (eviction is best-effort, so it is NOT awaited) and then completes the audit channel
+        // underneath. The pump must observe cancellation between ticks (no hang) and the
+        // completion-safe sweep must not throw when a channel is completed mid-flight (TryDequeue
+        // drains then returns false; TryWrite returns false so a survivor is disposed rather than
+        // re-enqueued or thrown).
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await broker.DisposeAsync().AsTask().WaitAsync(timeout.Token);
+    }
+
+    [Test]
+    public async Task Broker_MarkQueueForExpirationEviction_normalizes_non_positive_expiration()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var broker = new NonDurableBroker(new NonDurableBrokerOptions
+        {
+            TimeProvider = timeProvider
+        });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        broker.MarkQueueForExpirationEviction("audit", TimeSpan.Zero);
+        await broker.StartPump(cts.Token);
+
+        // A non-positive expiration is normalized to disabled (null): the queue is marked but no
+        // eviction pump is ever started, so the marked state and the pump state stay consistent.
+        Assert.That(broker.HasEvictionPump("audit"), Is.False);
+        await broker.DisposeAsync();
+    }
+
+    [Test]
+    public async Task Transport_initialize_in_raw_mode_does_not_throw_when_accessing_audit_settings()
+    {
+        var broker = new NonDurableBroker();
+        // Omitting coreSettings makes this raw mode (CoreSettings is null), which must not throw.
+        var hostSettings = new HostSettings("endpoint", string.Empty, new StartupDiagnosticEntries(), static (_, _, _) => { }, true);
+
+        var transport = new NonDurableTransport(new NonDurableTransportOptions(broker));
+        var infrastructure = await transport.Initialize(
+            hostSettings,
+            [new ReceiveSettings("main", new QueueAddress("input"), false, true, "error")],
+            ["error"],
+            CancellationToken.None);
+
+        Assert.That(broker.IsMarkedForExpirationEviction("audit"), Is.False);
+        await broker.DisposeAsync();
+    }
+
     static async Task AllowBackgroundPumpToStart(CancellationToken cancellationToken)
     {
         for (var i = 0; i < 100; i++)
