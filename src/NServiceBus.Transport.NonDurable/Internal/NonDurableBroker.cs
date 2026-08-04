@@ -131,6 +131,130 @@ public sealed class NonDurableBroker : IAsyncDisposable
         return Task.CompletedTask;
     }
 
+    internal void MarkQueueForExpirationEviction(string address, TimeSpan? expiration)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(address);
+        GetOrCreateQueue(address); // idempotent: ensures the audit queue exists before we sweep it
+
+        // Normalize non-positive expirations to null (disabled). StartEvictionPump treats
+        // <= TimeSpan.Zero as "do not run", so storing a non-positive value would leave the queue
+        // marked in expirationMarkedQueues with no pump ever started for it. Keeping the marked
+        // state and the pump state in agreement avoids that inconsistency.
+        expiration = expiration is { } value && value <= TimeSpan.Zero ? null : expiration;
+
+        expirationMarkedQueues[address] = expiration;
+
+        if (expiration.HasValue)
+        {
+            StartEvictionPump(address, expiration.Value);
+        }
+    }
+
+    // Each marked queue gets its own pump sweeping at THAT queue's configured expiration, so a
+    // long-TTBR queue isn't churned at a short-TTBR queue's cadence and a busy queue doesn't
+    // serialize behind others — both matter at production throughput. Eviction uses its own
+    // cancellation tied to the broker lifetime (not the receive pump), so it also covers send-only
+    // hosts and survives endpoint stop on a shared broker.
+    void StartEvictionPump(string address, TimeSpan expiration)
+    {
+        if (expiration <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        lock (evictionPumpStartLock)
+        {
+            if (expirationEvictionPumps.ContainsKey(address))
+            {
+                return;
+            }
+
+            expirationEvictionPumps[address] = RunEvictionPump(address, expiration, evictionCancelSource.Token);
+        }
+    }
+
+    async Task RunEvictionPump(string address, TimeSpan expiration, CancellationToken cancellationToken)
+    {
+        // The timer is created (and registered with the TimeProvider) in the synchronous prefix so
+        // that FakeTimeProvider-backed tests can Advance time immediately after the mark returns. No
+        // sweeping happens on the calling thread: the first sweep runs on the first tick, keeping the
+        // start lock and the mark call chain free of drain-filter work.
+        using var timer = new PeriodicTimer(expiration, timeProvider);
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                SweepExpiredEnvelopes(address, GetUtcNow());
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Broker disposal cancels the eviction pump as part of normal cleanup.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Broker disposal cancels and disposes the token source WITHOUT awaiting this pump
+            // (eviction is best-effort), so a pump still winding down may observe the disposed
+            // source here. That is expected; just exit.
+        }
+    }
+
+    void SweepExpiredEnvelopes(string address, DateTimeOffset now)
+    {
+        if (!expirationMarkedQueues.TryGetValue(address, out var expiration) || !expiration.HasValue)
+        {
+            return;
+        }
+
+        if (!queues.TryGetValue(address, out var queue))
+        {
+            return;
+        }
+
+        // Drain-filter bounded by a snapshot of the queue length, so only the backlog present at the
+        // start of this sweep is processed. Survivors are re-enqueued inline (no scratch list, so no
+        // per-sweep allocation), and bounding by the snapshot is what prevents us from re-draining the
+        // survivors we just put back — which would otherwise loop forever on the same channel.
+        // Messages enqueued by the dispatcher during the sweep are left for the next tick. The audit
+        // queue has no consumer, so there is no reader race; order is not preserved — acceptable for a
+        // centralized audit queue ingested in parallel.
+        //
+        // Completion-safe: a completed channel (broker disposal) drains its remaining items via
+        // TryDequeue and then returns false (no throw), and TryWrite returns false so a survivor that
+        // can't be re-enqueued is disposed, reclaiming its pooled buffer rather than throwing.
+        var count = queue.Count;
+#pragma warning disable CA2000 // each dequeued envelope is disposed or transferred back to the channel
+        for (var i = 0; i < count; i++)
+        {
+            if (!queue.TryDequeue(out var envelope) || envelope is null)
+            {
+                break;
+            }
+
+            if (envelope.DiscardAfter.HasValue && envelope.DiscardAfter.Value <= now)
+            {
+                envelope.Dispose();
+            }
+            else if (!queue.Writer.TryWrite(envelope))
+            {
+                // A completed channel (broker shutting down) rejects writes; reclaim the pooled buffer.
+                envelope.Dispose();
+            }
+        }
+#pragma warning restore CA2000
+    }
+
+    internal bool HasEvictionPump(string address)
+    {
+        lock (evictionPumpStartLock)
+        {
+            return expirationEvictionPumps.ContainsKey(address);
+        }
+    }
+
+    internal bool IsMarkedForExpirationEviction(string address) => expirationMarkedQueues.ContainsKey(address);
+
     bool HasSimulationFor(NonDurableSimulationOperation operation, string queue)
     {
         var resolved = ResolveSimulation(operation, queue);
@@ -491,6 +615,14 @@ public sealed class NonDurableBroker : IAsyncDisposable
             }
         }
 
+        // Eviction is best-effort and the sweep is completion-safe (TryDequeue/TryWrite never throw
+        // on a completed channel), so we cancel the pumps but do NOT await them — disposal must not
+        // wait for throwaway eviction work. The pumps exit promptly on cancellation; a pump still
+        // winding down when the token source is disposed is handled by RunEvictionPump's
+        // ObjectDisposedException catch. (The delayed pump above is different: it uses WriteAsync,
+        // which throws on a completed channel, so it MUST be awaited before TryComplete.)
+        await evictionCancelSource.CancelAsync().ConfigureAwait(false);
+
         DisposeDelayedMessages();
 
         // Completing queues lets receivers drain any buffered envelopes and then exit cleanly.
@@ -506,6 +638,7 @@ public sealed class NonDurableBroker : IAsyncDisposable
 
         customLimiters.Clear();
         delayedPumpCancelSource.Dispose();
+        evictionCancelSource.Dispose();
     }
 
     void DisposeDelayedMessages()
@@ -520,6 +653,10 @@ public sealed class NonDurableBroker : IAsyncDisposable
     }
 
     readonly ConcurrentDictionary<string, NonDurableChannel> queues = new();
+    readonly ConcurrentDictionary<string, TimeSpan?> expirationMarkedQueues = new();
+    readonly Dictionary<string, Task> expirationEvictionPumps = [];
+    readonly Lock evictionPumpStartLock = new();
+    CancellationTokenSource evictionCancelSource = new();
     readonly ConcurrentDictionary<string, Lazy<string[]>> subscriptions = new();
     readonly PriorityQueue<BrokerEnvelope, (DateTimeOffset DeliverAt, long SequenceNumber)> delayedMessages = new();
     readonly Lock delayedMessagesLock = new();

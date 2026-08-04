@@ -46,8 +46,27 @@ public sealed class NonDurableTransport : TransportDefinition
         ArgumentNullException.ThrowIfNull(receivers);
 
         var broker = ResolveBroker(hostSettings);
+        ConfigureAuditQueueExpiration(hostSettings, broker);
         var infrastructure = new NonDurableTransportInfrastructure(hostSettings, receivers, this, broker);
         return Task.FromResult<TransportInfrastructure>(infrastructure);
+    }
+
+    static void ConfigureAuditQueueExpiration(HostSettings hostSettings, NonDurableBroker broker)
+    {
+        if (hostSettings.IsRawMode)
+        {
+            return;
+        }
+
+        var settings = hostSettings.CoreSettings;
+        if (!settings.TryGetAuditQueueAddress(out var auditAddress))
+        {
+            return;
+        }
+
+        TimeSpan? expiration = settings.TryGetAuditMessageExpiration(out var configured) ? configured : null;
+
+        broker.MarkQueueForExpirationEviction(auditAddress, expiration);
     }
 
     NonDurableBroker ResolveBroker(HostSettings hostSettings) => hostSettings.ServiceProvider?.GetService<NonDurableBroker>() ?? GetFallbackBroker();
