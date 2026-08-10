@@ -53,7 +53,10 @@ static class NonDurableTransportTracing
         var activity = StartActivity(ProcessActivityName, ActivityKind.Consumer, default, receiveAddress, "process", "process", envelope.MessageId, envelope.Headers, links);
 
         PropagateContextFromHeaders(activity, envelope.Headers);
-        activity?.AddEvent(new ActivityEvent(HandoffEventName));
+        if (activity is { IsAllDataRequested: true })
+        {
+            activity.AddEvent(new ActivityEvent(HandoffEventName));
+        }
 
         return activity;
     }
