@@ -14,6 +14,8 @@ sealed class NonDurableChannel
 
     public ValueTask Enqueue(BrokerEnvelope envelope, CancellationToken cancellationToken = default) => channel.Writer.WriteAsync(envelope, cancellationToken);
 
+    public bool TryEnqueue(BrokerEnvelope envelope) => channel.Writer.TryWrite(envelope);
+
     public ValueTask<BrokerEnvelope> Dequeue(CancellationToken cancellationToken = default) => channel.Reader.ReadAsync(cancellationToken);
 
     public ValueTask<bool> WaitToRead(CancellationToken cancellationToken = default) => channel.Reader.WaitToReadAsync(cancellationToken);
@@ -25,7 +27,4 @@ sealed class NonDurableChannel
     public bool TryComplete() => channel.Writer.TryComplete();
 
     public int Count => channel.Reader.Count;
-
-    public ChannelReader<BrokerEnvelope> Reader => channel.Reader;
-    public ChannelWriter<BrokerEnvelope> Writer => channel.Writer;
 }
