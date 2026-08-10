@@ -2,6 +2,8 @@
 
 namespace NServiceBus.TransportTests.OpenTelemetry;
 
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using NServiceBus.Transport;
@@ -32,5 +34,54 @@ public class When_no_activity_listener_is_registered
         }
 
         Assert.That(Activity.Current, Is.Null, "no ambient activity should be left after dispatch");
+    }
+
+    [Test]
+    public async Task Should_preserve_ambient_activity_during_inline_receive()
+    {
+        await using var broker = new NonDurableBroker();
+        var infrastructure = await InlineExecutionTestHelper.CreateInfrastructure(broker, ["input"]);
+        var dispatcher = infrastructure.Dispatcher;
+        var receiver = infrastructure.Receivers["receiver-0"];
+        var childActivitySeenByHandler = new TaskCompletionSource<Activity?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Activity? ambientActivity = null;
+
+        await receiver.Initialize(
+            new PushRuntimeSettings(maxConcurrency: 1),
+            async (messageContext, cancellationToken) =>
+            {
+                if (messageContext.Headers.TryGetValue("kind", out var kind) && kind == "parent")
+                {
+                    using var activity = new Activity("user-operation").Start();
+                    ambientActivity = activity;
+                    await dispatcher.Dispatch(
+                        new TransportOperations(InlineExecutionTestHelper.CreateUnicast("input", headers: new Dictionary<string, string>
+                        {
+                            [Headers.MessageIntent] = MessageIntent.Send.ToString(),
+                            ["kind"] = "child"
+                        })),
+                        messageContext.TransportTransaction,
+                        cancellationToken);
+                }
+                else
+                {
+                    childActivitySeenByHandler.TrySetResult(Activity.Current);
+                }
+            },
+            (_, _) => Task.FromResult(ErrorHandleResult.Handled));
+
+        await receiver.StartReceive();
+        await dispatcher.Dispatch(
+            new TransportOperations(InlineExecutionTestHelper.CreateUnicast("input", headers: new Dictionary<string, string>
+            {
+                [Headers.MessageIntent] = MessageIntent.Send.ToString(),
+                ["kind"] = "parent"
+            })),
+            new TransportTransaction());
+
+        var childActivity = await childActivitySeenByHandler.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await receiver.StopReceive();
+
+        Assert.That(childActivity, Is.SameAs(ambientActivity));
     }
 }

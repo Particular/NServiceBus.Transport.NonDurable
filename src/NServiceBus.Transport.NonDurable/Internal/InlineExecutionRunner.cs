@@ -73,18 +73,20 @@ sealed class InlineExecutionRunner(
             contextBag.Set(dispatchContext);
         }
 
-        // The process span is a root span. Clear Activity.Current so CreateActivity with a
-        // default parent context does not fall back to the ambient activity (the send span or
-        // handler activity in the inline execution path). Restored in the finally block after
-        // the transport activity is disposed.
-        var previousActivity = Activity.Current;
-        Activity.Current = null;
-
+        // The process span is a root span. Clear Activity.Current only while creating it so
+        // CreateActivity with a default parent context does not fall back to the ambient activity
+        // (the send span or handler activity in the inline execution path). If no transport
+        // activity is created, preserve the caller's ambient activity for message processing.
+        Activity? previousActivity = null;
+        var processActivityStarted = false;
         if (NonDurableTransportTracing.HasListeners())
         {
+            previousActivity = Activity.Current;
+            Activity.Current = null;
             try
             {
                 transportActivity = NonDurableTransportTracing.StartProcess(envelope, receiveAddress);
+                processActivityStarted = transportActivity != null;
             }
 #pragma warning disable CA1031 // telemetry must never break message processing
             catch (Exception)
@@ -92,9 +94,14 @@ sealed class InlineExecutionRunner(
             {
                 transportActivity = null;
             }
-            if (transportActivity != null)
+
+            if (!processActivityStarted)
             {
-                contextBag.Set(transportActivity);
+                Activity.Current = previousActivity;
+            }
+            else
+            {
+                contextBag.Set(transportActivity!);
             }
         }
 
@@ -249,7 +256,10 @@ sealed class InlineExecutionRunner(
             committable?.Dispose();
             errorCommittable?.Dispose();
             transportActivity?.Dispose();
-            Activity.Current = previousActivity;
+            if (processActivityStarted)
+            {
+                Activity.Current = previousActivity;
+            }
         }
     }
 
