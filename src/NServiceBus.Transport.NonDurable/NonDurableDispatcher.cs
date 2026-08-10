@@ -235,12 +235,12 @@ class NonDurableDispatcher(
                 {
                     // Propagation is diagnostic-only. Dispose a started producer activity before
                     // continuing without telemetry so a propagation failure cannot leak ambient state.
-                    sendActivity?.Dispose();
+                    NonDurableTransportTracing.StopActivity(sendActivity);
                     sendActivity = null;
                 }
                 finally
                 {
-                    sendActivity?.Dispose();
+                    NonDurableTransportTracing.StopActivity(sendActivity);
                 }
             }
 
@@ -373,7 +373,7 @@ class NonDurableDispatcher(
             {
                 // Propagation is diagnostic-only. Dispose a started producer activity before
                 // continuing without telemetry so a propagation failure cannot affect dispatch.
-                activity?.Dispose();
+                NonDurableTransportTracing.StopActivity(activity);
                 activity = null;
             }
         }
@@ -418,7 +418,7 @@ class NonDurableDispatcher(
         }
         finally
         {
-            activity?.Dispose();
+            NonDurableTransportTracing.StopActivity(activity);
         }
     }
 

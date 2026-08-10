@@ -255,7 +255,7 @@ sealed class InlineExecutionRunner(
             linkedProcessingCancellation?.Dispose();
             committable?.Dispose();
             errorCommittable?.Dispose();
-            transportActivity?.Dispose();
+            NonDurableTransportTracing.StopActivity(transportActivity);
             if (processActivityStarted)
             {
                 Activity.Current = previousActivity;

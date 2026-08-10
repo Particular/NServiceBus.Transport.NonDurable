@@ -65,7 +65,7 @@ static class NonDurableTransportTracing
         }
         catch
         {
-            activity?.Dispose();
+            StopActivity(activity);
             throw;
         }
     }
@@ -91,29 +91,38 @@ static class NonDurableTransportTracing
 
     public static void MarkError(Activity? activity, Exception ex, bool exceptionEscaped)
     {
-        if (activity == null)
+        try
         {
-            return;
+            if (activity == null)
+            {
+                return;
+            }
+
+            activity.SetStatus(ActivityStatusCode.Error, ex.Message);
+
+            // Keep the cheap exception attributes always; the stacktrace (ex.ToString()) can be
+            // large, so only materialize it when the span is fully recorded.
+            var exceptionTags = new ActivityTagsCollection
+            {
+                ["exception.escaped"] = exceptionEscaped,
+                ["exception.type"] = ex.GetType().FullName,
+                ["exception.message"] = ex.Message,
+            };
+
+            if (activity.IsAllDataRequested)
+            {
+                exceptionTags["exception.stacktrace"] = ex.ToString();
+            }
+
+            activity.AddEvent(new ActivityEvent("exception", DateTimeOffset.UtcNow, exceptionTags));
+            activity.SetTag(ErrorType, ex.GetType().FullName);
         }
-
-        activity.SetStatus(ActivityStatusCode.Error, ex.Message);
-
-        // Keep the cheap exception attributes always; the stacktrace (ex.ToString()) can be
-        // large, so only materialize it when the span is fully recorded.
-        var exceptionTags = new ActivityTagsCollection
+#pragma warning disable CA1031 // telemetry must never affect application processing
+        catch (Exception)
+#pragma warning restore CA1031
         {
-            ["exception.escaped"] = exceptionEscaped,
-            ["exception.type"] = ex.GetType().FullName,
-            ["exception.message"] = ex.Message,
-        };
-
-        if (activity.IsAllDataRequested)
-        {
-            exceptionTags["exception.stacktrace"] = ex.ToString();
+            // Diagnostic failures must not mask the application exception.
         }
-
-        activity.AddEvent(new ActivityEvent("exception", DateTimeOffset.UtcNow, exceptionTags));
-        activity.SetTag(ErrorType, ex.GetType().FullName);
     }
 
     public static void MarkSuccess(Activity? activity)
@@ -124,6 +133,20 @@ static class NonDurableTransportTracing
         }
 
         activity.SetStatus(ActivityStatusCode.Ok);
+    }
+
+    public static void StopActivity(Activity? activity)
+    {
+        try
+        {
+            activity?.Dispose();
+        }
+#pragma warning disable CA1031 // telemetry must never affect application processing
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            // ActivityListener callbacks are diagnostic-only and must not affect processing.
+        }
     }
 
     // Context propagation (traceparent/tracestate/baggage) is hand-rolled to intentionally
