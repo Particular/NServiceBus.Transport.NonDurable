@@ -222,6 +222,7 @@ class NonDurableDispatcher(
             if (NonDurableTransportTracing.HasListeners())
             {
                 var headers = (Dictionary<string, string>)envelope.Headers;
+                var previousActivity = Activity.Current;
                 Activity? sendActivity = null;
                 try
                 {
@@ -235,12 +236,12 @@ class NonDurableDispatcher(
                 {
                     // Propagation is diagnostic-only. Dispose a started producer activity before
                     // continuing without telemetry so a propagation failure cannot leak ambient state.
-                    NonDurableTransportTracing.StopActivity(sendActivity);
+                    NonDurableTransportTracing.StopActivity(sendActivity, previousActivity);
                     sendActivity = null;
                 }
                 finally
                 {
-                    NonDurableTransportTracing.StopActivity(sendActivity);
+                    NonDurableTransportTracing.StopActivity(sendActivity, previousActivity);
                 }
             }
 
@@ -357,11 +358,13 @@ class NonDurableDispatcher(
     async Task DispatchToBroker(string destination, string messageId, BrokerEnvelope envelope, DateTimeOffset? deliverAt, CancellationToken cancellationToken)
     {
         Activity? activity = null;
+        Activity? previousActivity = null;
         var ownsEnvelope = true;
 
         if (NonDurableTransportTracing.HasListeners())
         {
             var headers = (Dictionary<string, string>)envelope.Headers;
+            previousActivity = Activity.Current;
             try
             {
                 activity = NonDurableTransportTracing.StartSend(destination, messageId, headers, deliverAt.HasValue);
@@ -373,7 +376,7 @@ class NonDurableDispatcher(
             {
                 // Propagation is diagnostic-only. Dispose a started producer activity before
                 // continuing without telemetry so a propagation failure cannot affect dispatch.
-                NonDurableTransportTracing.StopActivity(activity);
+                NonDurableTransportTracing.StopActivity(activity, previousActivity);
                 activity = null;
             }
         }
@@ -418,7 +421,7 @@ class NonDurableDispatcher(
         }
         finally
         {
-            NonDurableTransportTracing.StopActivity(activity);
+            NonDurableTransportTracing.StopActivity(activity, previousActivity);
         }
     }
 

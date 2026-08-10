@@ -48,6 +48,7 @@ static class NonDurableTransportTracing
         // causal relationship visible while keeping each message's processing at a bounded depth.
         // This mirrors how NServiceBus Core's ActivityFactory.StartIncomingPipelineActivity
         // treats the propagated traceparent as a link rather than as the parent context.
+        var previousActivity = Activity.Current;
         Activity? activity = null;
         try
         {
@@ -65,7 +66,7 @@ static class NonDurableTransportTracing
         }
         catch
         {
-            StopActivity(activity);
+            StopActivity(activity, previousActivity);
             throw;
         }
     }
@@ -121,7 +122,8 @@ static class NonDurableTransportTracing
         catch (Exception)
 #pragma warning restore CA1031
         {
-            // Diagnostic failures must not mask the application exception.
+            // Explicitly abandon diagnostic recording when it fails; never mask the application exception.
+            return;
         }
     }
 
@@ -135,7 +137,7 @@ static class NonDurableTransportTracing
         activity.SetStatus(ActivityStatusCode.Ok);
     }
 
-    public static void StopActivity(Activity? activity)
+    public static void StopActivity(Activity? activity, Activity? previousActivity)
     {
         try
         {
@@ -145,7 +147,30 @@ static class NonDurableTransportTracing
         catch (Exception)
 #pragma warning restore CA1031
         {
-            // ActivityListener callbacks are diagnostic-only and must not affect processing.
+            // ActivityListener callbacks are diagnostic-only; ambient restoration runs in finally.
+            return;
+        }
+        finally
+        {
+            RestoreAmbientActivity(activity, previousActivity);
+        }
+    }
+
+    static void RestoreAmbientActivity(Activity? activity, Activity? previousActivity)
+    {
+        try
+        {
+            if (activity is not null && ReferenceEquals(Activity.Current, activity))
+            {
+                Activity.Current = previousActivity;
+            }
+        }
+#pragma warning disable CA1031 // telemetry must never affect application processing
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            // CurrentChanged callbacks are diagnostic-only; ambient restoration is best effort.
+            return;
         }
     }
 
