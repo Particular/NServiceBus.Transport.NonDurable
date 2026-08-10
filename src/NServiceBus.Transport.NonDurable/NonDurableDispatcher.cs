@@ -233,6 +233,9 @@ class NonDurableDispatcher(
                 catch (Exception)
 #pragma warning restore CA1031
                 {
+                    // Propagation is diagnostic-only. Dispose a started producer activity before
+                    // continuing without telemetry so a propagation failure cannot leak ambient state.
+                    sendActivity?.Dispose();
                     sendActivity = null;
                 }
                 finally
@@ -362,14 +365,17 @@ class NonDurableDispatcher(
             try
             {
                 activity = NonDurableTransportTracing.StartSend(destination, messageId, headers, deliverAt.HasValue);
+                NonDurableTransportTracing.PropagateContextToHeaders(activity, headers);
             }
 #pragma warning disable CA1031 // telemetry must never break dispatch
             catch (Exception)
 #pragma warning restore CA1031
             {
+                // Propagation is diagnostic-only. Dispose a started producer activity before
+                // continuing without telemetry so a propagation failure cannot affect dispatch.
+                activity?.Dispose();
                 activity = null;
             }
-            NonDurableTransportTracing.PropagateContextToHeaders(activity, headers);
         }
 
         try

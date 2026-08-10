@@ -48,17 +48,26 @@ static class NonDurableTransportTracing
         // causal relationship visible while keeping each message's processing at a bounded depth.
         // This mirrors how NServiceBus Core's ActivityFactory.StartIncomingPipelineActivity
         // treats the propagated traceparent as a link rather than as the parent context.
-        var remoteContext = ResolveRemoteParentContext(envelope.Headers);
-        var links = remoteContext != default ? new[] { new ActivityLink(remoteContext) } : null;
-        var activity = StartActivity(ProcessActivityName, ActivityKind.Consumer, default, receiveAddress, "process", "process", envelope.MessageId, envelope.Headers, links);
-
-        PropagateContextFromHeaders(activity, envelope.Headers);
-        if (activity is { IsAllDataRequested: true })
+        Activity? activity = null;
+        try
         {
-            activity.AddEvent(new ActivityEvent(HandoffEventName));
-        }
+            var remoteContext = ResolveRemoteParentContext(envelope.Headers);
+            var links = remoteContext != default ? new[] { new ActivityLink(remoteContext) } : null;
+            activity = StartActivity(ProcessActivityName, ActivityKind.Consumer, default, receiveAddress, "process", "process", envelope.MessageId, envelope.Headers, links);
 
-        return activity;
+            PropagateContextFromHeaders(activity, envelope.Headers);
+            if (activity is { IsAllDataRequested: true })
+            {
+                activity.AddEvent(new ActivityEvent(HandoffEventName));
+            }
+
+            return activity;
+        }
+        catch
+        {
+            activity?.Dispose();
+            throw;
+        }
     }
 
     public static void AddProducerDispatchEvent(Activity? activity, DateTimeOffset? deliverAt)
