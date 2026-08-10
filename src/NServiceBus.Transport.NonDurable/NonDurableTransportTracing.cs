@@ -25,7 +25,7 @@ static class NonDurableTransportTracing
     const string ScheduledEventName = "nondurable.scheduled";
     const string HandoffEventName = "nondurable.handoff";
 
-    static readonly ActivitySource activitySource = new(ActivitySourceName, "0.1.0");
+    static readonly ActivitySource activitySource = new(ActivitySourceName, "0.2.0");
 
     public static bool HasListeners() => activitySource.HasListeners();
 
