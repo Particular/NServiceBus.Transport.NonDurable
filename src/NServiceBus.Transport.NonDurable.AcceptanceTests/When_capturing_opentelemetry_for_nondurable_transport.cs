@@ -29,13 +29,13 @@ public class When_capturing_opentelemetry_for_nondurable_transport : NServiceBus
         var coreReceiveActivities = listener.CompletedActivities.Where(activity => activity.Source.Name == "NServiceBus.Core" && activity.OperationName == "NServiceBus.Diagnostics.ReceiveMessage").ToList();
         var handlerActivities = listener.CompletedActivities.Where(activity => activity.Source.Name == "NServiceBus.Core" && activity.OperationName == "NServiceBus.Diagnostics.InvokeHandler").ToList();
 
-        var transportProcess = transportProcessActivities.SingleOrDefault(process => transportSendActivities.Any(send => process.ParentId == send.Id));
+        var transportProcess = transportProcessActivities.SingleOrDefault(process => transportSendActivities.Any(send => process.Links.Any(link => link.Context.SpanId == send.SpanId)));
         var coreReceive = coreReceiveActivities.SingleOrDefault(receive => receive.ParentId == transportProcess?.Id);
         var handler = handlerActivities.SingleOrDefault(candidate => candidate.ParentId == coreReceive?.Id);
 
         using (Assert.EnterMultipleScope())
         {
-            Assert.That(transportProcess, Is.Not.Null, "expected a NonDurable process span parented by a NonDurable send span");
+            Assert.That(transportProcess, Is.Not.Null, "expected a NonDurable process span linked to a NonDurable send span");
             Assert.That(coreReceive, Is.Not.Null, "expected a core receive span parented by the NonDurable process span");
             Assert.That(handler, Is.Not.Null, "expected a handler span parented by the core receive span");
             Assert.That(transportProcess!.GetTagItem("messaging.system"), Is.EqualTo("nondurable"));

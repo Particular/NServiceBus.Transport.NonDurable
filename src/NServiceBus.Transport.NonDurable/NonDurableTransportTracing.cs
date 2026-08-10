@@ -40,8 +40,17 @@ static class NonDurableTransportTracing
 
     public static Activity? StartProcess(BrokerEnvelope envelope, string receiveAddress)
     {
-        var parentContext = ResolveRemoteParentContext(envelope.Headers);
-        var activity = StartActivity(ProcessActivityName, ActivityKind.Consumer, parentContext, receiveAddress, "process", "process", envelope.MessageId, envelope.Headers);
+        // The process span is a root span: the remote producer context carried in the
+        // traceparent header is attached as a link rather than as the parent. Parenting the
+        // consumer span off the producer span would create an ever-deepening chain in
+        // self-feeding/saga scenarios (process -> send -> process -> send -> ...) because the
+        // send span is itself parented to the ambient handler activity. Using a link keeps the
+        // causal relationship visible while keeping each message's processing at a bounded depth.
+        // This mirrors how NServiceBus Core's ActivityFactory.StartIncomingPipelineActivity
+        // treats the propagated traceparent as a link rather than as the parent context.
+        var remoteContext = ResolveRemoteParentContext(envelope.Headers);
+        var links = remoteContext != default ? new[] { new ActivityLink(remoteContext) } : null;
+        var activity = StartActivity(ProcessActivityName, ActivityKind.Consumer, default, receiveAddress, "process", "process", envelope.MessageId, envelope.Headers, links);
 
         PropagateContextFromHeaders(activity, envelope.Headers);
         activity?.AddEvent(new ActivityEvent(HandoffEventName));
@@ -131,7 +140,7 @@ static class NonDurableTransportTracing
         }
     }
 
-    static Activity? StartActivity(string activityName, ActivityKind kind, ActivityContext parentContext, string destination, string operationName, string operationType, string messageId, IReadOnlyDictionary<string, string> headers)
+    static Activity? StartActivity(string activityName, ActivityKind kind, ActivityContext parentContext, string destination, string operationName, string operationType, string messageId, IReadOnlyDictionary<string, string> headers, IEnumerable<ActivityLink>? links = null)
     {
         if (!activitySource.HasListeners())
         {
@@ -152,7 +161,7 @@ static class NonDurableTransportTracing
             tags.Add(ConversationId, conversationId);
         }
 
-        var activity = activitySource.CreateActivity(activityName, kind, parentContext, tags, links: null, idFormat: ActivityIdFormat.W3C);
+        var activity = activitySource.CreateActivity(activityName, kind, parentContext, tags, links, idFormat: ActivityIdFormat.W3C);
         if (activity == null)
         {
             return null;

@@ -47,7 +47,8 @@ public class When_emitting_process_span_in_non_inline_receive_path
         {
             Assert.That(observedTransportActivity, Is.Not.Null);
             Assert.That(observedTransportActivity, Is.SameAs(processActivity));
-            Assert.That(processActivity.ParentId, Is.EqualTo(sendActivity.Id));
+            Assert.That(processActivity.ParentId, Is.Null, "process span should be a root span");
+            Assert.That(processActivity.Links.Any(link => link.Context.SpanId == sendActivity.SpanId), Is.True, "process span should link to the send span");
             Assert.That(processActivity.GetTagItem("messaging.destination.name"), Is.EqualTo("input"));
             Assert.That(processActivity.GetTagItem("messaging.operation.name"), Is.EqualTo("process"));
             Assert.That(processActivity.GetTagItem("messaging.operation.type"), Is.EqualTo("process"));
