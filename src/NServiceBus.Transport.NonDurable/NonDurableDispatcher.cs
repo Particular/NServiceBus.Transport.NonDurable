@@ -214,6 +214,33 @@ class NonDurableDispatcher(
                 return Task.FromException(new OperationCanceledException($"Inline dispatch to '{operation.Destination}' was rejected because the receiver is stopping."));
             }
 
+            // The reentrant inline path bypasses DispatchToBroker, so no send span would be
+            // created and no traceparent written to the envelope headers. Create a send span
+            // and propagate its context so the downstream process span can link back to the
+            // producer of this work item. The span is short-lived: the traceparent written to
+            // the headers is all the process span needs, and inline dispatch never enqueues.
+            if (NonDurableTransportTracing.HasListeners())
+            {
+                var headers = (Dictionary<string, string>)envelope.Headers;
+                Activity? sendActivity = null;
+                try
+                {
+                    sendActivity = NonDurableTransportTracing.StartSend(operation.Destination, envelope.MessageId, headers, deliverAt.HasValue);
+                    NonDurableTransportTracing.PropagateContextToHeaders(sendActivity, headers);
+                    NonDurableTransportTracing.MarkSuccess(sendActivity);
+                }
+#pragma warning disable CA1031 // telemetry must never break dispatch
+                catch (Exception)
+#pragma warning restore CA1031
+                {
+                    sendActivity = null;
+                }
+                finally
+                {
+                    sendActivity?.Dispose();
+                }
+            }
+
             scope.BeginDispatch();
             var inlineEnvelope = envelope with
             {

@@ -73,6 +73,13 @@ sealed class InlineExecutionRunner(
             contextBag.Set(dispatchContext);
         }
 
+        // The process span is a root span. Clear Activity.Current so CreateActivity with a
+        // default parent context does not fall back to the ambient activity (the send span or
+        // handler activity in the inline execution path). Restored in the finally block after
+        // the transport activity is disposed.
+        var previousActivity = Activity.Current;
+        Activity.Current = null;
+
         if (NonDurableTransportTracing.HasListeners())
         {
             try
@@ -242,6 +249,7 @@ sealed class InlineExecutionRunner(
             committable?.Dispose();
             errorCommittable?.Dispose();
             transportActivity?.Dispose();
+            Activity.Current = previousActivity;
         }
     }
 
