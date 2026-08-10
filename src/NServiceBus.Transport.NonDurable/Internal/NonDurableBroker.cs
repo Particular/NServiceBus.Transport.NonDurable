@@ -236,7 +236,7 @@ public sealed class NonDurableBroker : IAsyncDisposable
             {
                 envelope.Dispose();
             }
-            else if (!queue.Writer.TryWrite(envelope))
+            else if (!queue.TryEnqueue(envelope))
             {
                 // A completed channel (broker shutting down) rejects writes; reclaim the pooled buffer.
                 envelope.Dispose();
