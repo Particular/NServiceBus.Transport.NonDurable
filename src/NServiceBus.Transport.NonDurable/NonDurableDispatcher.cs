@@ -416,7 +416,7 @@ class NonDurableDispatcher(
                 envelope.Dispose();
             }
 
-            NonDurableTransportTracing.MarkError(activity, ex, exceptionEscaped: true);
+            NonDurableTransportTracing.MarkError(activity, ex, broker.GetCurrentTime());
             throw;
         }
         finally

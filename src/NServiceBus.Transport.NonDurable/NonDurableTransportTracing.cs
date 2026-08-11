@@ -90,7 +90,7 @@ static class NonDurableTransportTracing
         activity.AddEvent(new ActivityEvent(EnqueuedEventName));
     }
 
-    public static void MarkError(Activity? activity, Exception ex, bool exceptionEscaped)
+    public static void MarkError(Activity? activity, Exception ex, DateTimeOffset timestamp)
     {
         try
         {
@@ -100,23 +100,8 @@ static class NonDurableTransportTracing
             }
 
             activity.SetStatus(ActivityStatusCode.Error, ex.Message);
-
-            // Keep the cheap exception attributes always; the stacktrace (ex.ToString()) can be
-            // large, so only materialize it when the span is fully recorded.
-            var exceptionTags = new ActivityTagsCollection
-            {
-                ["exception.escaped"] = exceptionEscaped,
-                ["exception.type"] = ex.GetType().FullName,
-                ["exception.message"] = ex.Message,
-            };
-
-            if (activity.IsAllDataRequested)
-            {
-                exceptionTags["exception.stacktrace"] = ex.ToString();
-            }
-
-            activity.AddEvent(new ActivityEvent("exception", DateTimeOffset.UtcNow, exceptionTags));
             activity.SetTag(ErrorType, ex.GetType().FullName);
+            activity.AddException(ex, timestamp: timestamp);
         }
 #pragma warning disable CA1031 // telemetry must never affect application processing
         catch (Exception)

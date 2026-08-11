@@ -164,7 +164,7 @@ sealed class InlineExecutionRunner(
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !processingCancellationToken.IsCancellationRequested)
         {
-            NonDurableTransportTracing.MarkError(transportActivity, ex, exceptionEscaped: false);
+            NonDurableTransportTracing.MarkError(transportActivity, ex, broker.GetCurrentTime());
             // A CommittableTransaction is single-use: once Commit() has succeeded it cannot be
             // rolled back (Rollback() on a committed tx throws TransactionException). If the
             // post-Commit enlisted-send flush threw, the saga/persistence mutations are already
