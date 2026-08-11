@@ -73,10 +73,12 @@ sealed class InlineExecutionRunner(
             contextBag.Set(dispatchContext);
         }
 
-        // The process span is a root span. Clear Activity.Current only while creating it so
-        // CreateActivity with a default parent context does not fall back to the ambient activity
-        // (the send span or handler activity in the inline execution path). If no transport
-        // activity is created, preserve the caller's ambient activity for message processing.
+        // StartProcess decides the correlation: parent-child when the message is processed
+        // synchronously via inline execution, otherwise a root span with a link to the message
+        // creation context. Clear Activity.Current only while creating the span so CreateActivity
+        // with a default parent context does not fall back to the ambient activity (the send span
+        // or handler activity in the inline execution path). If no transport activity is created,
+        // preserve the caller's ambient activity for message processing.
         Activity? previousActivity = null;
         var processActivityStarted = false;
         if (NonDurableTransportTracing.HasListeners())

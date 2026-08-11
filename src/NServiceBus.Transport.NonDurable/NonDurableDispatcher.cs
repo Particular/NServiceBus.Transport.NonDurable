@@ -216,9 +216,10 @@ class NonDurableDispatcher(
 
             // The reentrant inline path bypasses DispatchToBroker, so no send span would be
             // created and no traceparent written to the envelope headers. Create a send span
-            // and propagate its context so the downstream process span can link back to the
-            // producer of this work item. The span is short-lived: the traceparent written to
-            // the headers is all the process span needs, and inline dispatch never enqueues.
+            // and propagate its context so the downstream process span can parent to the
+            // producer of this work item (inline processing is synchronous with the send).
+            // The span is short-lived: the traceparent written to the headers is all the
+            // process span needs, and inline dispatch never enqueues.
             if (NonDurableTransportTracing.HasListeners())
             {
                 var headers = (Dictionary<string, string>)envelope.Headers;

@@ -40,21 +40,41 @@ static class NonDurableTransportTracing
 
     public static Activity? StartProcess(BrokerEnvelope envelope, string receiveAddress)
     {
-        // The process span is a root span: the remote producer context carried in the
-        // traceparent header is attached as a link rather than as the parent. Parenting the
-        // consumer span off the producer span would create an ever-deepening chain in
-        // self-feeding/saga scenarios (process -> send -> process -> send -> ...) because the
-        // send span is itself parented to the ambient handler activity. Using a link keeps the
-        // causal relationship visible while keeping each message's processing at a bounded depth.
-        // This mirrors how NServiceBus Core's ActivityFactory.StartIncomingPipelineActivity
-        // treats the propagated traceparent as a link rather than as the parent context.
+        // The process span correlates to the message creation context (the traceparent carried in
+        // the headers, written by the producer's send span) either as a link or as the parent,
+        // depending on how the message is processed.
+        //
+        // Inline execution processes a message synchronously within the send: the sender's
+        // dispatch task does not complete until processing finishes, so the process span uses the
+        // message creation context as its parent. The parent-child shape is the honest
+        // representation of the synchronous call stack and is the scenario the OTel messaging
+        // spec's "message creation context as parent of Process span" clause targets.
+        //
+        // All other processing is asynchronous: pump-received messages (non-inline receive,
+        // cross-endpoint delivery) and delayed delivery (including delayed retry with a preserved
+        // inline scope, which carries InlineState but is processed later by the pump) run outside
+        // the send's operation. Parenting the consumer span off the producer span there would
+        // create an ever-deepening chain in self-feeding/saga scenarios
+        // (process -> send -> process -> send -> ...) because the send span is itself parented to
+        // the ambient handler activity. Keeping those as root spans with a link preserves the
+        // causal relationship while keeping each message's processing at a bounded depth. This
+        // mirrors how NServiceBus Core's ActivityFactory.StartIncomingPipelineActivity treats the
+        // propagated traceparent as a link rather than as the parent context.
         var previousActivity = Activity.Current;
         Activity? activity = null;
         try
         {
             var remoteContext = ResolveRemoteParentContext(envelope.Headers);
-            var links = remoteContext != default ? new[] { new ActivityLink(remoteContext) } : null;
-            activity = StartActivity(ProcessActivityName, ActivityKind.Consumer, default, receiveAddress, "process", "process", envelope.MessageId, envelope.Headers, links);
+            var processedSynchronouslyInline = envelope.InlineState is not null && envelope.DeliverAt is null;
+
+            var parentContext = processedSynchronouslyInline ? remoteContext : default;
+            IEnumerable<ActivityLink>? links = null;
+            if (!processedSynchronouslyInline && remoteContext != default)
+            {
+                links = new[] { new ActivityLink(remoteContext) };
+            }
+
+            activity = StartActivity(ProcessActivityName, ActivityKind.Consumer, parentContext, receiveAddress, "process", "process", envelope.MessageId, envelope.Headers, links);
 
             PropagateContextFromHeaders(activity, envelope.Headers);
             if (activity is { IsAllDataRequested: true })

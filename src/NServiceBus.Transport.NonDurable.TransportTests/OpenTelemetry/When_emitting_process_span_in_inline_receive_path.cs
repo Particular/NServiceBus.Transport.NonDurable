@@ -16,7 +16,7 @@ using NUnit.Framework;
 public class When_emitting_process_span_in_inline_receive_path
 {
     [Test]
-    public async Task Should_create_root_process_spans_in_the_inline_receive_path()
+    public async Task Should_parent_process_spans_to_send_spans_in_the_inline_receive_path()
     {
         await using var broker = new NonDurableBroker();
         using var listener = new TestingActivityListener(NonDurableTransportTracing.ActivitySourceName);
@@ -33,7 +33,8 @@ public class When_emitting_process_span_in_inline_receive_path
                 {
                     // Reentrant inline dispatch: the child message is processed inline while
                     // Activity.Current is the parent handler's activity. The process span must
-                    // still be a root span, not parented to the ambient activity.
+                    // parent to the child message's creation context (its send span), not to the
+                    // ambient activity.
                     await dispatcher.Dispatch(
                         new TransportOperations(CreateUnicast("input", headers: new Dictionary<string, string>
                         {
@@ -74,14 +75,13 @@ public class When_emitting_process_span_in_inline_receive_path
             Assert.That(sendActivities, Has.Count.EqualTo(2));
             Assert.That(processActivities, Has.Count.EqualTo(2));
 
-            // Every process span is a root span even in the inline execution path.
-            Assert.That(processActivities.All(process => process.ParentId is null), Is.True, "process spans should be root spans in the inline execution path");
-
-            // Each process span links back to its corresponding send span.
+            // Inline execution processes each message synchronously within the send, so each
+            // process span uses the message creation context (the send span) as its parent.
             foreach (var process in processActivities)
             {
-                Assert.That(process.Links.Count(), Is.EqualTo(1), "process span should carry exactly one link");
-                Assert.That(sendActivities.Any(send => send.SpanId == process.Links.Single().Context.SpanId), Is.True, "process span should link to a send span");
+                Assert.That(process.ParentId, Is.Not.Null, "process span should be parented to a send span in the inline execution path");
+                Assert.That(sendActivities.Any(send => send.Id == process.ParentId), Is.True, "process span should be parented to the send span that produced the message");
+                Assert.That(process.Links, Is.Empty, "process span should carry no links when parented to the send span");
             }
         }
     }
