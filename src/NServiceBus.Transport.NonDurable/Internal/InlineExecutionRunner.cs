@@ -73,11 +73,22 @@ sealed class InlineExecutionRunner(
             contextBag.Set(dispatchContext);
         }
 
+        // StartProcess decides the correlation: parent-child when the message is processed
+        // synchronously via inline execution, otherwise a root span with a link to the message
+        // creation context. Clear Activity.Current only while creating the span so CreateActivity
+        // with a default parent context does not fall back to the ambient activity (the send span
+        // or handler activity in the inline execution path). If no transport activity is created,
+        // preserve the caller's ambient activity for message processing.
+        Activity? previousActivity = null;
+        var processActivityStarted = false;
         if (NonDurableTransportTracing.HasListeners())
         {
+            previousActivity = Activity.Current;
+            Activity.Current = null;
             try
             {
                 transportActivity = NonDurableTransportTracing.StartProcess(envelope, receiveAddress);
+                processActivityStarted = transportActivity != null;
             }
 #pragma warning disable CA1031 // telemetry must never break message processing
             catch (Exception)
@@ -85,9 +96,14 @@ sealed class InlineExecutionRunner(
             {
                 transportActivity = null;
             }
-            if (transportActivity != null)
+
+            if (!processActivityStarted)
             {
-                contextBag.Set(transportActivity);
+                Activity.Current = previousActivity;
+            }
+            else
+            {
+                contextBag.Set(transportActivity!);
             }
         }
 
@@ -150,7 +166,7 @@ sealed class InlineExecutionRunner(
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !processingCancellationToken.IsCancellationRequested)
         {
-            NonDurableTransportTracing.MarkError(transportActivity, ex, exceptionEscaped: false);
+            NonDurableTransportTracing.MarkError(transportActivity, ex, broker.GetCurrentTime());
             // A CommittableTransaction is single-use: once Commit() has succeeded it cannot be
             // rolled back (Rollback() on a committed tx throws TransactionException). If the
             // post-Commit enlisted-send flush threw, the saga/persistence mutations are already
@@ -241,7 +257,7 @@ sealed class InlineExecutionRunner(
             linkedProcessingCancellation?.Dispose();
             committable?.Dispose();
             errorCommittable?.Dispose();
-            transportActivity?.Dispose();
+            NonDurableTransportTracing.StopActivity(transportActivity, previousActivity);
         }
     }
 

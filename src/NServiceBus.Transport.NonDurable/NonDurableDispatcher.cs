@@ -214,6 +214,38 @@ class NonDurableDispatcher(
                 return Task.FromException(new OperationCanceledException($"Inline dispatch to '{operation.Destination}' was rejected because the receiver is stopping."));
             }
 
+            // The reentrant inline path bypasses DispatchToBroker, so no send span would be
+            // created and no traceparent written to the envelope headers. Create a send span
+            // and propagate its context so the downstream process span can parent to the
+            // producer of this work item (inline processing is synchronous with the send).
+            // The span is short-lived: the traceparent written to the headers is all the
+            // process span needs, and inline dispatch never enqueues.
+            if (NonDurableTransportTracing.HasListeners())
+            {
+                var headers = (Dictionary<string, string>)envelope.Headers;
+                var previousActivity = Activity.Current;
+                Activity? sendActivity = null;
+                try
+                {
+                    sendActivity = NonDurableTransportTracing.StartSend(operation.Destination, envelope.MessageId, headers, deliverAt.HasValue);
+                    NonDurableTransportTracing.PropagateContextToHeaders(sendActivity, headers);
+                    NonDurableTransportTracing.MarkSuccess(sendActivity);
+                }
+#pragma warning disable CA1031 // telemetry must never break dispatch
+                catch (Exception)
+#pragma warning restore CA1031
+                {
+                    // Propagation is diagnostic-only. Dispose a started producer activity before
+                    // continuing without telemetry so a propagation failure cannot leak ambient state.
+                    NonDurableTransportTracing.StopActivity(sendActivity, previousActivity);
+                    sendActivity = null;
+                }
+                finally
+                {
+                    NonDurableTransportTracing.StopActivity(sendActivity, previousActivity);
+                }
+            }
+
             scope.BeginDispatch();
             var inlineEnvelope = envelope with
             {
@@ -327,22 +359,27 @@ class NonDurableDispatcher(
     async Task DispatchToBroker(string destination, string messageId, BrokerEnvelope envelope, DateTimeOffset? deliverAt, CancellationToken cancellationToken)
     {
         Activity? activity = null;
+        Activity? previousActivity = null;
         var ownsEnvelope = true;
 
         if (NonDurableTransportTracing.HasListeners())
         {
             var headers = (Dictionary<string, string>)envelope.Headers;
+            previousActivity = Activity.Current;
             try
             {
                 activity = NonDurableTransportTracing.StartSend(destination, messageId, headers, deliverAt.HasValue);
+                NonDurableTransportTracing.PropagateContextToHeaders(activity, headers);
             }
 #pragma warning disable CA1031 // telemetry must never break dispatch
             catch (Exception)
 #pragma warning restore CA1031
             {
+                // Propagation is diagnostic-only. Dispose a started producer activity before
+                // continuing without telemetry so a propagation failure cannot affect dispatch.
+                NonDurableTransportTracing.StopActivity(activity, previousActivity);
                 activity = null;
             }
-            NonDurableTransportTracing.PropagateContextToHeaders(activity, headers);
         }
 
         try
@@ -380,12 +417,12 @@ class NonDurableDispatcher(
                 envelope.Dispose();
             }
 
-            NonDurableTransportTracing.MarkError(activity, ex, exceptionEscaped: true);
+            NonDurableTransportTracing.MarkError(activity, ex, broker.GetCurrentTime());
             throw;
         }
         finally
         {
-            activity?.Dispose();
+            NonDurableTransportTracing.StopActivity(activity, previousActivity);
         }
     }
 

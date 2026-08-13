@@ -25,7 +25,7 @@ static class NonDurableTransportTracing
     const string ScheduledEventName = "nondurable.scheduled";
     const string HandoffEventName = "nondurable.handoff";
 
-    static readonly ActivitySource activitySource = new(ActivitySourceName, "0.1.0");
+    static readonly ActivitySource activitySource = new(ActivitySourceName, "0.2.0");
 
     public static bool HasListeners() => activitySource.HasListeners();
 
@@ -40,13 +40,49 @@ static class NonDurableTransportTracing
 
     public static Activity? StartProcess(BrokerEnvelope envelope, string receiveAddress)
     {
-        var parentContext = ResolveRemoteParentContext(envelope.Headers);
-        var activity = StartActivity(ProcessActivityName, ActivityKind.Consumer, parentContext, receiveAddress, "process", "process", envelope.MessageId, envelope.Headers);
+        // The process span correlates to the message creation context (the traceparent carried in
+        // the headers, written by the producer's send span) either as a link or as the parent,
+        // depending on how the message is processed.
+        //
+        // Inline execution processes a message synchronously within the send: the sender's
+        // dispatch task does not complete until processing finishes, so the process span uses the
+        // message creation context as its parent. The parent-child shape is the honest
+        // representation of the synchronous call stack and is the scenario the OTel messaging
+        // spec's "message creation context as parent of Process span" clause targets.
+        //
+        // All other processing is asynchronous: pump-received messages (non-inline receive,
+        // cross-endpoint delivery) and delayed delivery (including delayed retry with a preserved
+        // inline scope, which carries InlineState but is processed later by the pump) run outside
+        // the send's operation.
+        var previousActivity = Activity.Current;
+        Activity? activity = null;
+        try
+        {
+            var remoteContext = ResolveRemoteParentContext(envelope.Headers);
+            var processedSynchronouslyInline = envelope.InlineState is not null && envelope.DeliverAt is null;
 
-        PropagateContextFromHeaders(activity, envelope.Headers);
-        activity?.AddEvent(new ActivityEvent(HandoffEventName));
+            var parentContext = processedSynchronouslyInline ? remoteContext : default;
+            IEnumerable<ActivityLink>? links = null;
+            if (!processedSynchronouslyInline && remoteContext != default)
+            {
+                links = new[] { new ActivityLink(remoteContext) };
+            }
 
-        return activity;
+            activity = StartActivity(ProcessActivityName, ActivityKind.Consumer, parentContext, receiveAddress, "process", "process", envelope.MessageId, envelope.Headers, links);
+
+            PropagateContextFromHeaders(activity, envelope.Headers);
+            if (activity is { IsAllDataRequested: true })
+            {
+                activity.AddEvent(new ActivityEvent(HandoffEventName));
+            }
+
+            return activity;
+        }
+        catch
+        {
+            StopActivity(activity, previousActivity);
+            throw;
+        }
     }
 
     public static void AddProducerDispatchEvent(Activity? activity, DateTimeOffset? deliverAt)
@@ -68,31 +104,26 @@ static class NonDurableTransportTracing
         activity.AddEvent(new ActivityEvent(EnqueuedEventName));
     }
 
-    public static void MarkError(Activity? activity, Exception ex, bool exceptionEscaped)
+    public static void MarkError(Activity? activity, Exception ex, DateTimeOffset timestamp)
     {
-        if (activity == null)
+        try
         {
+            if (activity == null)
+            {
+                return;
+            }
+
+            activity.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity.SetTag(ErrorType, ex.GetType().FullName);
+            activity.AddException(ex, timestamp: timestamp);
+        }
+#pragma warning disable CA1031 // telemetry must never affect application processing
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            // Explicitly abandon diagnostic recording when it fails; never mask the application exception.
             return;
         }
-
-        activity.SetStatus(ActivityStatusCode.Error, ex.Message);
-
-        // Keep the cheap exception attributes always; the stacktrace (ex.ToString()) can be
-        // large, so only materialize it when the span is fully recorded.
-        var exceptionTags = new ActivityTagsCollection
-        {
-            ["exception.escaped"] = exceptionEscaped,
-            ["exception.type"] = ex.GetType().FullName,
-            ["exception.message"] = ex.Message,
-        };
-
-        if (activity.IsAllDataRequested)
-        {
-            exceptionTags["exception.stacktrace"] = ex.ToString();
-        }
-
-        activity.AddEvent(new ActivityEvent("exception", DateTimeOffset.UtcNow, exceptionTags));
-        activity.SetTag(ErrorType, ex.GetType().FullName);
     }
 
     public static void MarkSuccess(Activity? activity)
@@ -103,6 +134,43 @@ static class NonDurableTransportTracing
         }
 
         activity.SetStatus(ActivityStatusCode.Ok);
+    }
+
+    public static void StopActivity(Activity? activity, Activity? previousActivity)
+    {
+        try
+        {
+            activity?.Dispose();
+        }
+#pragma warning disable CA1031 // telemetry must never affect application processing
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            // ActivityListener callbacks are diagnostic-only; ambient restoration runs in finally.
+            return;
+        }
+        finally
+        {
+            RestoreAmbientActivity(activity, previousActivity);
+        }
+    }
+
+    static void RestoreAmbientActivity(Activity? activity, Activity? previousActivity)
+    {
+        try
+        {
+            if (activity is not null && ReferenceEquals(Activity.Current, activity))
+            {
+                Activity.Current = previousActivity;
+            }
+        }
+#pragma warning disable CA1031 // telemetry must never affect application processing
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            // CurrentChanged callbacks are diagnostic-only; ambient restoration is best effort.
+            return;
+        }
     }
 
     // Context propagation (traceparent/tracestate/baggage) is hand-rolled to intentionally
@@ -131,7 +199,7 @@ static class NonDurableTransportTracing
         }
     }
 
-    static Activity? StartActivity(string activityName, ActivityKind kind, ActivityContext parentContext, string destination, string operationName, string operationType, string messageId, IReadOnlyDictionary<string, string> headers)
+    static Activity? StartActivity(string activityName, ActivityKind kind, ActivityContext parentContext, string destination, string operationName, string operationType, string messageId, IReadOnlyDictionary<string, string> headers, IEnumerable<ActivityLink>? links = null)
     {
         if (!activitySource.HasListeners())
         {
@@ -152,7 +220,7 @@ static class NonDurableTransportTracing
             tags.Add(ConversationId, conversationId);
         }
 
-        var activity = activitySource.CreateActivity(activityName, kind, parentContext, tags, links: null, idFormat: ActivityIdFormat.W3C);
+        var activity = activitySource.CreateActivity(activityName, kind, parentContext, tags, links, idFormat: ActivityIdFormat.W3C);
         if (activity == null)
         {
             return null;
