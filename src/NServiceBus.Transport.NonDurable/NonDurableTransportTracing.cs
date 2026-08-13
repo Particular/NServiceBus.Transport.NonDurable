@@ -20,6 +20,8 @@ static class NonDurableTransportTracing
     const string MessageId = "messaging.message.id";
     const string ConversationId = "messaging.message.conversation_id";
     const string ErrorType = "error.type";
+    // Matches NServiceBus.Core's exception recording marker (see Particular/NServiceBus#7911).
+    const string ExceptionRecordedKey = "otel.exception.recorded";
     const string NonDurableSystemName = "nondurable";
     const string EnqueuedEventName = "nondurable.enqueued";
     const string ScheduledEventName = "nondurable.scheduled";
@@ -115,7 +117,11 @@ static class NonDurableTransportTracing
 
             activity.SetStatus(ActivityStatusCode.Error, ex.Message);
             activity.SetTag(ErrorType, ex.GetType().FullName);
-            activity.AddException(ex, timestamp: timestamp);
+
+            if (!ex.Data.Contains(ExceptionRecordedKey))
+            {
+                activity.AddException(ex, timestamp: timestamp);
+            }
         }
 #pragma warning disable CA1031 // telemetry must never affect application processing
         catch (Exception)
