@@ -53,13 +53,7 @@ static class NonDurableTransportTracing
         // All other processing is asynchronous: pump-received messages (non-inline receive,
         // cross-endpoint delivery) and delayed delivery (including delayed retry with a preserved
         // inline scope, which carries InlineState but is processed later by the pump) run outside
-        // the send's operation. Parenting the consumer span off the producer span there would
-        // create an ever-deepening chain in self-feeding/saga scenarios
-        // (process -> send -> process -> send -> ...) because the send span is itself parented to
-        // the ambient handler activity. Keeping those as root spans with a link preserves the
-        // causal relationship while keeping each message's processing at a bounded depth. This
-        // mirrors how NServiceBus Core's ActivityFactory.StartIncomingPipelineActivity treats the
-        // propagated traceparent as a link rather than as the parent context.
+        // the send's operation.
         var previousActivity = Activity.Current;
         Activity? activity = null;
         try
