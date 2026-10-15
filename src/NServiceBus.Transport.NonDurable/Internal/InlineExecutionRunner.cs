@@ -52,7 +52,7 @@ sealed class InlineExecutionRunner(
             // the dedicated bag key. When the outbox is enabled, the persistence joins
             // NonDurableOutboxTransaction instead, which is NOT enlisted here and provides
             // its own consistency boundary.
-            committable = new CommittableTransaction();
+            committable = CreateReceiveTransaction();
             transportTransaction.Set(NonDurableTransactionKeys.Transaction, committable);
             enlistment = new PendingEnvelopeEnlistment();
             committable.EnlistVolatile(enlistment, EnlistmentOptions.None);
@@ -183,7 +183,7 @@ sealed class InlineExecutionRunner(
                 // dispatches the error-queue move with DispatchConsistency.Default against
                 // errorContext.TransportTransaction, so the move enlists into this tx and is
                 // committed atomically on ErrorHandleResult.Handled (or rolled back on RetryRequired).
-                errorCommittable = new CommittableTransaction();
+                errorCommittable = CreateReceiveTransaction();
                 transportTransaction.Set(NonDurableTransactionKeys.Transaction, errorCommittable);
                 enlistment = new PendingEnvelopeEnlistment();
                 errorCommittable.EnlistVolatile(enlistment, EnlistmentOptions.None);
@@ -341,6 +341,11 @@ sealed class InlineExecutionRunner(
     static bool IsDeferredRetry(TransportTransaction transportTransaction) =>
         transportTransaction.TryGet<RecoverabilityAction>(out var action) &&
         action is DelayedRetry or ImmediateRetry;
+
+    // Created without a timeout: the parameterless constructor inherits TransactionManager.DefaultTimeout (60s),
+    // which aborts the transaction under a long-running handler and fails its commit after the work is done.
+    // The transaction only coordinates in-memory enlistments, so a timeout has nothing to protect.
+    static CommittableTransaction CreateReceiveTransaction() => new(TimeSpan.Zero);
 
     OnMessage onMessage = null!;
     OnError onError = null!;
