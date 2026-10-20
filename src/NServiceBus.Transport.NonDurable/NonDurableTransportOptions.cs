@@ -1,5 +1,7 @@
 namespace NServiceBus;
 
+using System;
+using System.Transactions;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
@@ -33,4 +35,40 @@ public sealed class NonDurableTransportOptions(NonDurableBroker? broker = null)
     /// behavior than most durable message brokers, because otherwise in-memory messages can be lost.
     /// </summary>
     public NonDurableTransportShutdownBehavior ShutdownBehavior { get; set; } = NonDurableTransportShutdownBehavior.DrainQueueBeforeShutdown;
+
+    /// <summary>
+    /// Gets or sets the timeout for the transaction that wraps message processing in
+    /// <see cref="TransportTransactionMode.SendsAtomicWithReceive" /> mode. The same timeout applies to the
+    /// transaction used to commit the outcome of recoverability when processing fails.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// When <c>null</c>, which is the default, <see cref="TransactionManager.DefaultTimeout" /> is used. That is
+    /// 60 seconds unless changed.
+    /// </para>
+    /// <para>
+    /// The timeout does not cancel a running message handler. If the handler is still running when the timeout
+    /// expires, the transaction is aborted, and when the handler finishes the commit fails. The handler's outgoing
+    /// messages and synchronized storage changes are then rolled back and the message is handed to recoverability.
+    /// Set this to a value longer than the longest expected handler duration.
+    /// </para>
+    /// <para>
+    /// The value must be greater than <see cref="TimeSpan.Zero" />. Unlike <see cref="TransactionScope" />,
+    /// the transport's transaction is not capped by <see cref="TransactionManager.MaximumTimeout" />.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is less than or equal to <see cref="TimeSpan.Zero" />.</exception>
+    public TimeSpan? TransactionTimeout
+    {
+        get;
+        set
+        {
+            if (value.HasValue)
+            {
+                ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(value.Value, TimeSpan.Zero, nameof(TransactionTimeout));
+            }
+
+            field = value;
+        }
+    }
 }

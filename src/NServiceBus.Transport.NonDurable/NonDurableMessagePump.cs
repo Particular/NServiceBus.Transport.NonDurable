@@ -15,7 +15,8 @@ class NonDurableMessagePump(
     TransportTransactionMode transactionMode,
     Action<string, Exception, CancellationToken> criticalErrorAction,
     NonDurableBroker broker,
-    NonDurableTransportShutdownBehavior shutdownBehavior) : IMessageReceiver
+    NonDurableTransportShutdownBehavior shutdownBehavior,
+    TimeSpan? transactionTimeout = null) : IMessageReceiver
 {
     public string Id { get; } = id;
 
@@ -25,7 +26,7 @@ class NonDurableMessagePump(
 
     public ReceiveSettings ReceiveSettings { get; } = receiveSettings;
 
-    internal InlineExecutionRunner Runner { get; } = new(receiveAddress, transactionMode, criticalErrorAction, broker, static () => CancellationToken.None);
+    internal InlineExecutionRunner Runner { get; } = new(receiveAddress, transactionMode, criticalErrorAction, broker, static () => CancellationToken.None, transactionTimeout);
 
     public void ConfigureSubscriptionManager(ISubscriptionManager? subscriptionManager) => Subscriptions = subscriptionManager;
 

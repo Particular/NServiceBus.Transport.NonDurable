@@ -29,6 +29,7 @@ public sealed class NonDurableTransport : TransportDefinition
         configuredBroker = transportOptions.Broker;
         InlineExecutionSettings = new InlineExecutionSettings(transportOptions);
         ShutdownBehavior = transportOptions.ShutdownBehavior;
+        TransactionTimeout = transportOptions.TransactionTimeout;
 
         if (InlineExecutionSettings.IsEnabled)
         {
@@ -86,4 +87,6 @@ public sealed class NonDurableTransport : TransportDefinition
     internal InlineExecutionSettings InlineExecutionSettings { get; }
 
     internal NonDurableTransportShutdownBehavior ShutdownBehavior { get; }
+
+    internal TimeSpan? TransactionTimeout { get; }
 }

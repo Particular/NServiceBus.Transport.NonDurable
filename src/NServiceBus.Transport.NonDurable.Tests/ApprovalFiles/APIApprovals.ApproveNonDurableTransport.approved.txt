@@ -72,6 +72,7 @@ namespace NServiceBus
         public NServiceBus.NonDurableBroker? Broker { get; }
         public NServiceBus.InlineExecutionOptions? InlineExecution { get; set; }
         public NServiceBus.NonDurableTransportShutdownBehavior ShutdownBehavior { get; set; }
+        public System.TimeSpan? TransactionTimeout { get; set; }
     }
     public enum NonDurableTransportShutdownBehavior
     {
